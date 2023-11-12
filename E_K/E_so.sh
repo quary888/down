@@ -1,5 +1,4 @@
 #!/bin/bash
-yum install glibc.i686
-apt install libc6:i386
+apt install libc6:i386 -y
 tar xvf E_so.tar -C /lib
 chmod -R 777 * /lib
