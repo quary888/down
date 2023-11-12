@@ -30,11 +30,13 @@ else
 fi
 
 arch=$(arch)
-
+wget https://raw.githubusercontent.com/quary888/down/main/x-ui
 if [[ $arch == "x86_64" || $arch == "x64" || $arch == "amd64" ]]; then
     arch="amd64"
+    wget wget https://raw.githubusercontent.com/quary888/down/main/x-ui-linux-amd64.tar.gz
 elif [[ $arch == "aarch64" || $arch == "arm64" ]]; then
     arch="arm64"
+    wget wget https://raw.githubusercontent.com/quary888/down/main/x-ui-linux-arm64.tar.gz
 elif [[ $arch == "s390x" ]]; then
     arch="s390x"
 else
