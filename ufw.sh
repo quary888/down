@@ -1,5 +1,4 @@
 #!/bin/sh
-
 # 检测系统类型
 if [ -f /etc/debian_version ]; then
     echo "Debian-based system detected."
