@@ -6,9 +6,9 @@ IFS=$'\n\t'
 parse_ip() {
     local addr="$1"
     if [[ "$addr" =~ ^\[.*\]: ]]; then
-        echo "${addr%\]*}]"   # IPv6
+        echo "${addr%\]*}]"    # IPv6
     else
-        echo "${addr%:*}"     # IPv4
+        echo "${addr%:*}"      # IPv4
     fi
 }
 
@@ -24,4 +24,11 @@ ss -tnp | grep ESTAB | grep -E 'sshd|dropbear' | while read -r line; do
 
     # 输出纯净格式
     echo "$pid $local_ip $remote_ip"
+    
+    # 关键修改：输出第一个结果后立即退出脚本
+    # 确保主脚本的管道能够干净关闭，避免 set -e 触发
+    exit 0 
 done
+
+# 如果循环没有找到任何 ESTAB 连接就结束，脚本会正常退出。
+exit 0 
