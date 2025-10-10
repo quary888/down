@@ -143,17 +143,46 @@ generate_reality_config() {
 EOF
 )
 
-    # 入口 IP 选择
-    read -rp "请选择入口 IP 类型: 4/6 [默认 6]: " ip_type
-    ip_type=${ip_type:-6}
+    # ========= 使用 获取本地 IP =========
+    # 获取 IP
+    IP1=$(bash <(wget -qO- -o- https://raw.githubusercontent.com/quary888/down/main/get_ssh_ip.sh) | head -n1 | awk '{print $2}')
+    ip2=$(curl -6 -s --max-time 5 ipv6.icanhazip.com)
+    ip3=$(curl -4 -s --max-time 5 ipv4.icanhazip.com)
+    IP=""
+    # 给 IPv6 前后加方括号
+    [ -n "$ip2" ] && ip2="[$ip2]"
 
-    if [[ "$ip_type" == "4" ]]; then
-        IP=$(curl -s https://ipv4.icanhazip.com | tr -d '[:space:]')
-    else
-        IP=$(curl -s https://ipv6.icanhazip.com | tr -d '[:space:]')
-        IP="[$IP]"
-    fi
-    green "使用入口 IP: $IP"
+    # 显示 IP 列表
+    echo "IP 列表："
+    echo "1) $IP1"
+    echo "2) $ip2"
+    echo "3) $ip3"
+
+    # 交互式选择
+    while true; do
+      read -rp "请选择入口IP (1/2/3): " choice
+      case "$choice" in
+        1) IP="$IP1"; break ;;
+        2) 
+           if [ -n "$ip2" ]; then 
+             IP="$ip2"
+             break
+           else
+             echo "IPv6 IP 不可用，请重新选择。"
+           fi
+           ;;
+        3) IP="$ip3"; break ;;
+        *) echo "输入不正确，请输入 1、2 或 3。" ;;
+      esac
+    done
+
+    echo "你选择的 IP 是：$IP"
+
+
+
+    
+    
+
     red "请检查入口IP是否正确,有些小鸡出口入口IP不一样!"
 
     share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=chrome&pbk=$password&sid=$short_id#Xray-Reality"
