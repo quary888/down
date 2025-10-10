@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 IFS=$'\n\t'
-DEFAULT_BUFFER=1024
+
 # ========= 颜色输出 =========
 RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; RESET="\033[0m"
 red(){ printf "${RED}%s${RESET}\n" "$1"; }
@@ -171,6 +171,7 @@ else
 fi
 
 if [[ "$regen" =~ ^[Yy]$ ]]; then
+    DEFAULT_BUFFER=1024
     read -rp "设置 bufferSize(KB)(低配默认即可 否则BOOM) [默认 $DEFAULT_BUFFER]: " BUFFER_SIZE
     BUFFER_SIZE=${BUFFER_SIZE:-$DEFAULT_BUFFER}
     green "bufferSize 设置为 $BUFFER_SIZE KB"
