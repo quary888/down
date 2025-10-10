@@ -11,7 +11,7 @@ yellow(){ printf "${YELLOW}%s${RESET}\n" "$1"; }
 # ========= 必须 root =========
 [ "$(id -u)" -eq 0 ] || { red "请使用 root 运行"; exit 1; }
 
-# ========= s5示例 =========
+# ========= 输出信息 =========
 yellow "s5 自定义路由用法"
 yellow "脚本所在目录 新建 *.socks5.txt 内容为:"
 green "IP&端口&账号&密码 #第一行 s5配置信息"
@@ -137,7 +137,7 @@ generate_reality_config() {
   "port":$port,
   "protocol":"vless",
   "settings":{"clients":[{"id":"$UUID","flow":"xtls-rprx-vision"}],"decryption":"none"},
-  "streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":true,"dest":"$dest_server:443","xver":0,"serverNames":["$dest_server"],"privateKey":"$private_key","shortIds":["$short_id"]}}
+  "streamSettings":{"network":"tcp","security":"reality","realitySettings":{"show":false,"dest":"$dest_server:443","xver":0,"serverNames":["$dest_server"],"privateKey":"$private_key","shortIds":["$short_id"]}}
 }
 EOF
 )
@@ -224,7 +224,7 @@ for f in "${SOCKS_FILES[@]}"; do
 EOF
 )
 
-    mapfile -t domains < <(tail -n +2 "$f" | tr -d '\r' | grep -Ev '^\s*$|^#')
+    mapfile -t domains < <(tail -n +2 "$f" | tr -d '\r' | grep -Ev '^\s*$|^#' | sed 's/^/domain:/')
     [ ${#domains[@]} -eq 0 ] && { yellow "⚠️ 文件 $f 未发现域名，跳过"; continue; }
 
     domain_rules=$(printf '"%s",' "${domains[@]}")
