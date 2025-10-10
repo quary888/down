@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 IFS=$'\n\t'
-
+DEFAULT_BUFFER=1024
 # ========= 颜色输出 =========
 RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; RESET="\033[0m"
 red(){ printf "${RED}%s${RESET}\n" "$1"; }
@@ -54,6 +54,7 @@ if pgrep -x xray >/dev/null 2>&1; then
     sleep 1
     green "已结束所有 xray 进程"
 fi
+
 
 # ========= 下载 Xray =========
 re_download=false
@@ -170,6 +171,10 @@ else
 fi
 
 if [[ "$regen" =~ ^[Yy]$ ]]; then
+    read -rp "设置 bufferSize(KB)(低配默认即可 否则BOOM) [默认 $DEFAULT_BUFFER]: " BUFFER_SIZE
+    BUFFER_SIZE=${BUFFER_SIZE:-$DEFAULT_BUFFER}
+    green "bufferSize 设置为 $BUFFER_SIZE KB"
+
     DEFAULT_PORT=10001
     read -rp "请输入 reality 监听端口 [默认 $DEFAULT_PORT]: " port
     port=${port:-$DEFAULT_PORT}
@@ -180,13 +185,12 @@ if [[ "$regen" =~ ^[Yy]$ ]]; then
     generate_reality_config "$port" "$dest_server"
 else
     green "保留现有 Reality 配置，只更新 SOCKS5 出站和域名路由"
-    # 保留原有 inbounds
     REALITY_INBOUND=$(jq '.inbounds' "$CONFIG_PATH")
 fi
 
 # ========= 读取 *.socks5.txt 并生成出站规则 =========
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SOCKS_FILES=("$SCRIPT_DIR"/*socks5.txt)
+SOCKS_FILES=("$SCRIPT_DIR"/*.socks5.txt)
 SOCKS_OUTBOUNDS=()
 SOCKS_RULES=()
 
@@ -205,7 +209,8 @@ for f in "${SOCKS_FILES[@]}"; do
     users_json="[]"
     [[ -n "$user" && -n "$pass" ]] && users_json="[{\"user\":\"$user\",\"pass\":\"$pass\"}]"
 
-    tag_name="socks5_$(basename "$f" .txt | tr -cd 'a-zA-Z0-9_')"
+    # tag 直接取文件名去掉 .socks5.txt
+    tag_name="$(basename "$f" .socks5.txt)"
 
     socks_outbound=$(cat <<EOF
 {
@@ -247,38 +252,32 @@ done
 if [[ "$regen" =~ ^[Yy]$ ]]; then
     cat > "$CONFIG_PATH" <<EOF
 {
-  "log": {"loglevel":"warning"},
+  "log": {"loglevel":"warning","dnsLog":false},
   "inbounds": [$REALITY_INBOUND],
   "outbounds": [{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"blocked"}],
   "routing": {"domainStrategy":"AsIs","rules":[]},
-  "policy":{"handshake":4,"connIdle":300,"uplinkOnly":2,"downlinkOnly":5,"bufferSize":1024}
+  "policy":{"handshake":4,"connIdle":300,"bufferSize":$BUFFER_SIZE}
 }
 EOF
 else
-    # 保留原有 config.json，只保证 routing 存在
     tmp_cfg="${CONFIG_PATH}.tmp"
     jq '.routing |= (.routing // {domainStrategy:"AsIs",rules:[]})' "$CONFIG_PATH" > "$tmp_cfg" && mv "$tmp_cfg" "$CONFIG_PATH"
 fi
 
-# ========= 合并 SOCKS5 出站和路由（避免重复 tag） =========
+# ========= 合并 SOCKS5 出站和路由 =========
 if [ ${#SOCKS_OUTBOUNDS[@]} -gt 0 ]; then
     yellow "合并 SOCKS5 出站和路由..."
     tmp_cfg="${CONFIG_PATH}.tmp"
-    jq --argjson socks_out "[${SOCKS_OUTBOUNDS[*]}]" \
-       --argjson socks_rules "[${SOCKS_RULES[*]}]" \
+
+    out_json=$(printf '%s\n' "${SOCKS_OUTBOUNDS[@]}" | jq -s '.')
+    rule_json=$(printf '%s\n' "${SOCKS_RULES[@]}" | jq -s '.')
+
+    jq --argjson socks_out "$out_json" --argjson socks_rules "$rule_json" \
        '
-       .outbounds |= (
-           reduce $socks_out[] as $so (
-               .;
-               if any(.[]; .tag == $so.tag) then
-                   map(if .tag==$so.tag then $so else . end)
-               else
-                   . + [$so]
-               end
-           )
-       ) |
+       .outbounds |= (. + $socks_out) |
        .routing.rules |= (. + $socks_rules)
        ' "$CONFIG_PATH" > "$tmp_cfg" && mv "$tmp_cfg" "$CONFIG_PATH"
+
     green "✅ SOCKS5 出站和路由已合并到 $CONFIG_PATH"
 else
     yellow "未检测到 SOCKS5 配置，跳过"
