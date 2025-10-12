@@ -294,21 +294,26 @@ else
     jq '.routing |= (.routing // {domainStrategy:"AsIs",rules:[]})' "$CONFIG_PATH" > "$tmp_cfg" && mv "$tmp_cfg" "$CONFIG_PATH"
 fi
 
-# ========= 合并 SOCKS5 出站和路由 =========
+# ========= 重新生成 SOCKS5 出站和路由 =========
 if [ ${#SOCKS_OUTBOUNDS[@]} -gt 0 ]; then
-    yellow "合并 SOCKS5 出站和路由..."
+    yellow "重新生成 SOCKS5 出站和路由..."
     tmp_cfg="${CONFIG_PATH}.tmp"
 
     out_json=$(printf '%s\n' "${SOCKS_OUTBOUNDS[@]}" | jq -s '.')
     rule_json=$(printf '%s\n' "${SOCKS_RULES[@]}" | jq -s '.')
 
-    jq --argjson socks_out "$out_json" --argjson socks_rules "$rule_json" \
-       '
-       .outbounds |= (. + $socks_out) |
-       .routing.rules |= (. + $socks_rules)
-       ' "$CONFIG_PATH" > "$tmp_cfg" && mv "$tmp_cfg" "$CONFIG_PATH"
+    jq --argjson socks_out "$out_json" --argjson socks_rules "$rule_json" '
+        # 删除旧的 outbounds 并重新创建
+        .outbounds = ([{"protocol":"freedom","tag":"direct"},{"protocol":"blackhole","tag":"blocked"}] + $socks_out)
+        |
+        # 删除并重建路由规则
+        .routing.rules = $socks_rules
+        |
+        # 确保 routing.domainStrategy 存在
+        .routing.domainStrategy = (.routing.domainStrategy // "AsIs")
+    ' "$CONFIG_PATH" > "$tmp_cfg" && mv "$tmp_cfg" "$CONFIG_PATH"
 
-    green "✅ SOCKS5 出站和路由已合并到 $CONFIG_PATH"
+    green "✅ 已重新生成 SOCKS5 出站和路由模块"
 else
     yellow "未检测到 SOCKS5 配置，跳过"
 fi
