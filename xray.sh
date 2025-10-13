@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-set -euo pipefail
 IFS=$'\n\t'
 
 # ========= 颜色输出 =========
@@ -24,22 +23,41 @@ echo
 # ========= 安装依赖 =========
 DEPENDENCIES=(curl wget unzip nc awk sed grep ss jq xxd)
 install_pkg() {
-    pkg="$1"
-    yellow "检测到缺少 $pkg，尝试安装..."
+    cmd="$1"
+    yellow "检测到缺少命令: $cmd，尝试安装..."
+
+    # 命令 → 包名映射
+    case "$cmd" in
+        nc)
+            pkg="netcat-openbsd"   # Debian/Ubuntu 的包名
+            if command -v apk >/dev/null 2>&1; then
+                pkg="netcat-openbsd"   # Alpine 同名，也有 openbsd 版本
+            fi
+            ;;
+        ss)
+            pkg="iproute2"
+            ;;
+        *)
+            pkg="$cmd"
+            ;;
+    esac
+
     if command -v apt-get >/dev/null 2>&1; then
-        apt-get update
-        [[ "$pkg" == "ss" ]] && pkg="iproute2"
+        apt-get update -y
         apt-get install -y "$pkg"
     elif command -v apk >/dev/null 2>&1; then
-        [[ "$pkg" == "ss" ]] && pkg="iproute2"
         apk add --no-cache "$pkg"
     else
         red "当前系统不支持自动安装 $pkg，请手动安装"
         exit 1
     fi
 }
+
+# 检查每个命令
 for cmd in "${DEPENDENCIES[@]}"; do
-    command -v "$cmd" >/dev/null 2>&1 || install_pkg "$cmd"
+    if ! command -v "$cmd" >/dev/null 2>&1; then
+        install_pkg "$cmd"
+    fi
 done
 
 # ========= 安装目录 =========
@@ -105,8 +123,6 @@ if $re_download; then
         red "解压后找不到 xray 文件"
         exit 1
     fi
-else
-    green "保留现有 Xray 文件: $BIN_PATH"
 fi
 
 # ========= Reality 配置生成函数 =========
@@ -144,47 +160,82 @@ EOF
 )
 
     # ========= 使用 获取本地 IP =========
-    # 获取 IP
-    IP1=$(bash <(wget -qO- -o- https://raw.githubusercontent.com/quary888/down/main/get_ssh_ip.sh) | head -n1 | awk '{print $2}')
-    ip2=$(curl -6 -s --max-time 5 ipv6.icanhazip.com)
-    ip3=$(curl -4 -s --max-time 5 ipv4.icanhazip.com)
-    IP=""
-    # 给 IPv6 前后加方括号
-    [ -n "$ip2" ] && ip2="[$ip2]"
-
-    # 显示 IP 列表
-    echo "IP 列表："
-    echo "1) $IP1"
-    echo "2) $ip2"
-    echo "3) $ip3"
-
-    # 交互式选择
-    while true; do
-      read -rp "请选择入口IP (1/2/3): " choice
-      case "$choice" in
-        1) IP="$IP1"; break ;;
-        2) 
-           if [ -n "$ip2" ]; then 
-             IP="$ip2"
-             break
-           else
-             echo "IPv6 IP 不可用，请重新选择。"
-           fi
-           ;;
-        3) IP="$ip3"; break ;;
-        *) echo "输入不正确，请输入 1、2 或 3。" ;;
-      esac
+    # 兼容 bash，保留顺序去重，不会把远程 IP 当入口展示
+    IFS=$'\n\t'
+    # 获取公网 IP（IPv4/IPv6）
+    ip4=$(curl -4 -s --max-time 5 ipv4.icanhazip.com)
+    ip6=$(curl -6 -s --max-time 5 ipv6.icanhazip.com)
+    # 规范化 IPv6 为带方括号格式（如果是 IPv6 且未带方括号则加上）
+    norm_ip() {
+      local ip="$1"
+      # 空返回空
+      [ -z "$ip" ] && { echo ""; return; }
+      # 如果已经有方括号，直接返回
+      if [[ "$ip" =~ ^\[[0-9a-fA-F:]+\]$ ]]; then
+        echo "$ip"
+        return
+      fi
+      # 含冒号的视为 IPv6（简单判断）
+      if [[ "$ip" == *:* ]]; then
+        echo "[$ip]"
+      else
+        echo "$ip"
+      fi
+    }
+    ip4=$(norm_ip "$ip4")
+    ip6=$(norm_ip "$ip6")
+    # 从远端脚本抓取“本机/入口”IP（第2列），并去重保留顺序
+    # 注: get_ssh_ip.sh 输出格式应为：PID local_ip remote_ip
+    # 我们取第2列 (local_ip)
+    mapfile -t ssh_ips_raw < <(bash <(wget -qO- -o- https://www.161800.xyz/B/get_ssh_ip.sh) 2>/dev/null | awk '{print $2}')
+    # 规范化 ssh_ips（为 IPv6 加方括号）
+    ssh_ips=()
+    for s in "${ssh_ips_raw[@]}"; do
+      [ -z "$s" ] && continue
+      ssh_ips+=("$(norm_ip "$s")")
     done
-
+    # 合并到最终列表并去重（保持出现顺序）
+    declare -A seen
+    IP_LIST=()
+    # 优先加入公网 ip4/ip6（如果有）
+    for candidate in "$ip4" "$ip6"; do
+      [ -n "$candidate" ] || continue
+      if [ -z "${seen[$candidate]}" ]; then
+        IP_LIST+=("$candidate")
+        seen[$candidate]=1
+      fi
+    done
+    # 再加入 ssh 抓到的本机/入口 IP
+    for candidate in "${ssh_ips[@]}"; do
+      [ -n "$candidate" ] || continue
+      if [ -z "${seen[$candidate]}" ]; then
+        IP_LIST+=("$candidate")
+        seen[$candidate]=1
+      fi
+    done
+    # 如果没有任何候选，退出并提示
+    if [ ${#IP_LIST[@]} -eq 0 ]; then
+      echo "未检测到任何可用 IP。"
+      exit 1
+    fi
+    # 显示菜单
+    echo "可选入口 IP："
+    for i in "${!IP_LIST[@]}"; do
+      echo "$((i+1))) ${IP_LIST[i]}"
+    done
+    # 交互选择
+    while true; do
+      read -rp "请选择入口 IP (1-${#IP_LIST[@]}): " choice
+      if [[ "$choice" =~ ^[0-9]+$ ]] && (( choice>=1 && choice<=${#IP_LIST[@]} )); then
+        IP="${IP_LIST[$((choice-1))]}"
+        break
+      else
+        echo "输入不正确，请输入 1-${#IP_LIST[@]} 之间的数字。"
+      fi
+    done
     echo "你选择的 IP 是：$IP"
-
-
-
-    
-    
-
     red "请检查入口IP是否正确,有些小鸡出口入口IP不一样!"
-
+#获取IP结束
     share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=chrome&pbk=$password&sid=$short_id#Xray-Reality"
     printf "%s\n" "$share_link" > "$SHARE_LINK_PATH"
     green "分享链接已保存到 $SHARE_LINK_PATH"
