@@ -236,7 +236,7 @@ EOF
     echo "你选择的 IP 是：$IP"
     red "请检查入口IP是否正确,有些小鸡出口入口IP不一样!"
 #获取IP结束
-    share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=chrome&pbk=$password&sid=$short_id#Xray-Reality"
+    share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=firefox&pbk=$password&sid=$short_id#Xray-Reality"
     printf "%s\n" "$share_link" > "$SHARE_LINK_PATH"
     green "分享链接已保存到 $SHARE_LINK_PATH"
     yellow "$share_link"
