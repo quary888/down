@@ -187,7 +187,7 @@ EOF
     # 从远端脚本抓取“本机/入口”IP（第2列），并去重保留顺序
     # 注: get_ssh_ip.sh 输出格式应为：PID local_ip remote_ip
     # 我们取第2列 (local_ip)
-    mapfile -t ssh_ips_raw < <(bash <(wget -qO- -o- https://www.161800.xyz/B/get_ssh_ip.sh) 2>/dev/null | awk '{print $2}')
+    mapfile -t ssh_ips_raw < <(bash <(wget -qO- -o- https://raw.githubusercontent.com/quary888/down/main/get_ssh_ip.sh) 2>/dev/null | awk '{print $2}')
     # 规范化 ssh_ips（为 IPv6 加方括号）
     ssh_ips=()
     for s in "${ssh_ips_raw[@]}"; do
