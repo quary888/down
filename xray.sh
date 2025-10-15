@@ -1,6 +1,12 @@
 #!/usr/bin/env bash
-IFS=$'\n\t'
+#定义变量
 
+#指纹 firefox=火狐浏览器
+Q_FP="firefox"
+
+#定义变量
+
+IFS=$'\n\t'
 # ========= 颜色输出 =========
 RED="\033[31m"; GREEN="\033[32m"; YELLOW="\033[33m"; RESET="\033[0m"
 red(){ printf "${RED}%s${RESET}\n" "$1"; }
@@ -236,7 +242,7 @@ EOF
     echo "你选择的 IP 是：$IP"
     red "请检查入口IP是否正确,有些小鸡出口入口IP不一样!"
 #获取IP结束
-    share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=firefox&pbk=$password&sid=$short_id#Xray-Reality"
+    share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=$Q_FP&pbk=$password&sid=$short_id#Xray-Reality"
     printf "%s\n" "$share_link" > "$SHARE_LINK_PATH"
     green "分享链接已保存到 $SHARE_LINK_PATH"
     yellow "$share_link"
@@ -409,4 +415,4 @@ INIT
     service xray restart || true
 fi
 
-green "安装完成，Xray Reality + SOCKS5 已就绪"
+green "安装完成，Xray Reality 已就绪"
