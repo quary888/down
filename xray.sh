@@ -110,7 +110,7 @@ if $re_download; then
 
     yellow "解压..."
     unzip -o "$tmpzip" -d "$INSTALL_DIR"
-    rm -f "$tmpzip" "$INSTALL_DIR/geoip.dat" "$INSTALL_DIR/geosite.dat"
+    rm -f "$tmpzip" "$INSTALL_DIR/geoip.dat" "$INSTALL_DIR/geosite.dat" "$INSTALL_DIR/README.md" "$INSTALL_DIR/LICENSE"
     green "已清理压缩包和 .dat 文件"
 
     if [ -f "$INSTALL_DIR/xray" ]; then
