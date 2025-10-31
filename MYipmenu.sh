@@ -116,14 +116,24 @@ fi
         删除集合 "$setname"
     fi
 
-    ipset create "$setname" hash:net 2>/dev/null || true
+    # 自动识别 IPv4 / IPv6
+    if grep -q ':' "$TMPIP"; then
+        family="inet6"
+    else
+        family="inet"
+    fi
+
+    ipset create "$setname" hash:net family $family 2>/dev/null || true
     grep -v '^$' "$TMPIP" | xargs -I{} ipset add "$setname" {} 2>/dev/null
+
     iptables -C INPUT -m set --match-set "$setname" src -j ACCEPT 2>/dev/null || \
     iptables -A INPUT -m set --match-set "$setname" src -j ACCEPT
+
     ipset save "$setname" > "$PERSIST_DIR/${setname}.ipset"
 
-    echo "✅ 已添加 $name 白名单集合 ($setname)"
+    echo "✅ 已添加 $name 白名单集合 ($setname, family=$family)"
 }
+
 
 # ================== 列出规则 ==================
 列出规则() {
@@ -220,6 +230,8 @@ while true; do
     echo "1) 添加规则"
     echo "2) 清空规则"
     echo "3) 更新规则"
+    echo "4) 添加cf白名单"
+    echo "5) 查看IP列表"
     read -p "输入编号（回车退出）: " choice
     if [ -z "$choice" ]; then
         break
@@ -279,6 +291,15 @@ while true; do
             ;;
         2) 清空所有 ;;
         3) 更新规则 ;;
+        4)
+            echo "🚀 正在添加 Cloudflare 白名单..."
+            添加数据 "cf_ipv4" "https://www.cloudflare.com/ips-v4"
+            添加数据 "cf_ipv6" "https://www.cloudflare.com/ips-v6"
+            echo "✅ Cloudflare 白名单已添加完成"
+            ;;
+        5)
+            grep -E 'add whitelist_' /etc/ipset/whitelist_*
+            ;;
         *) echo "❌ 无效选择" ;;
     esac
 done
