@@ -14,7 +14,7 @@ ERROR="[${RED}ERROR${END}]"
 #---------------------------
 if [ $# -lt 1 ]; then
     echo -e "${ERROR} Missing URL argument."
-    echo "Usage: bash <(curl -fsSL script.sh) <URL>"
+    echo "Usage: bash <(curl -fsSL script.sh) <PUB_KEY_URL>"
     exit 1
 fi
 
@@ -42,17 +42,35 @@ echo "${PUB_KEY}" > ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 
 #---------------------------
-# 禁用密码登录（强制禁密修复所有覆盖文件）
+# 强化 SSH 配置（绝不禁止 pubkey）
 #---------------------------
-echo -e "${INFO} Disabling password login (full override)..."
-
 SSHD_CONFIG="/etc/ssh/sshd_config"
 
-# 修改主配置
-$SUDO sed -i 's@^#*PasswordAuthentication .*@PasswordAuthentication no@g' "$SSHD_CONFIG"
-$SUDO sed -i 's@^#*PermitRootLogin .*@PermitRootLogin prohibit-password@g' "$SSHD_CONFIG"
+echo -e "${INFO} Securing SSH configuration..."
 
-# 禁用 sshd_config.d 内所有 yes
+# 保证 key 登录永远开启
+$SUDO sed -i 's@^#*PubkeyAuthentication .*@PubkeyAuthentication yes@g' "$SSHD_CONFIG"
+
+# 防止 Include 覆盖 pubkey
+if [ -d /etc/ssh/sshd_config.d ]; then
+    for f in /etc/ssh/sshd_config.d/*.conf; do
+        [ -f "$f" ] || continue
+        $SUDO sed -i 's@^PubkeyAuthentication.*@PubkeyAuthentication yes@g' "$f"
+    done
+fi
+
+# 确保 root 能用密钥登录
+$SUDO sed -i 's@^#*PermitRootLogin .*@PermitRootLogin yes@g' "$SSHD_CONFIG"
+
+# 禁用密码，不影响 pubkey
+$SUDO sed -i 's@^#*PasswordAuthentication .*@PasswordAuthentication no@g' "$SSHD_CONFIG"
+
+# 禁止 challenge/keyboard interactive
+$SUDO sed -i 's@^#*KbdInteractiveAuthentication .*@KbdInteractiveAuthentication no@g' "$SSHD_CONFIG"
+
+#---------------------------
+# 清理 include 文件中的 password 设置
+#---------------------------
 if [ -d /etc/ssh/sshd_config.d ]; then
     for f in /etc/ssh/sshd_config.d/*.conf; do
         [ -f "$f" ] || continue
@@ -85,4 +103,4 @@ else
     exit 1
 fi
 
-echo -e "${INFO} SSH key setup completed."
+echo -e "${INFO} SSH key setup completed with enhanced security."
