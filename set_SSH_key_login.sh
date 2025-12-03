@@ -9,30 +9,50 @@ ERROR="[${RED}ERROR${END}]"
 
 [ $EUID != 0 ] && SUDO=sudo
 
-#---------------------------
-# 参数检查
-#---------------------------
+SSHD_CONFIG="/etc/ssh/sshd_config"
+SSHD_D="/etc/ssh/sshd_config.d"
+
+########################################
+# 无参数 → 启用密码登录模式
+########################################
 if [ $# -lt 1 ]; then
-    echo -e "${ERROR} Missing URL argument."
-    echo "Usage: bash <(curl -fsSL script.sh) <PUB_KEY_URL>"
-    exit 1
+    echo -e "${INFO} No PUB_KEY_URL provided. Enabling password login..."
+
+    $SUDO sed -i 's@^#*PasswordAuthentication .*@PasswordAuthentication yes@g' "$SSHD_CONFIG"
+    $SUDO sed -i 's@^#*KbdInteractiveAuthentication .*@KbdInteractiveAuthentication yes@g' "$SSHD_CONFIG"
+
+    if [ -d "$SSHD_D" ]; then
+        for f in $SSHD_D/*.conf; do
+            [ -f "$f" ] || continue
+            $SUDO sed -i 's@^PasswordAuthentication.*@PasswordAuthentication yes@g' "$f"
+            $SUDO sed -i 's@^#*PasswordAuthentication.*@PasswordAuthentication yes@g' "$f"
+            $SUDO sed -i 's@^KbdInteractiveAuthentication.*@KbdInteractiveAuthentication yes@g' "$f"
+            $SUDO sed -i 's@^#*KbdInteractiveAuthentication.*@KbdInteractiveAuthentication yes@g' "$f"
+        done
+    fi
+
+    echo -e "${INFO} Password login enabled. Restarting sshd..."
+    if systemctl restart sshd 2>/dev/null || service sshd restart 2>/dev/null || rc-service sshd restart 2>/dev/null; then
+        echo -e "${INFO} SSHD restarted."
+    else
+        echo -e "${ERROR} Cannot restart sshd. Restart manually."
+    fi
+    exit 0
 fi
 
-PUB_KEY_URL="$1"
+########################################
+# 有参数 → 正常密钥安装 & 禁用密码
+########################################
 
-#---------------------------
-# 获取公钥
-#---------------------------
+PUB_KEY_URL="$1"
 echo -e "${INFO} Fetching SSH public key from: $PUB_KEY_URL"
+
 PUB_KEY=$(curl -fsSL "${PUB_KEY_URL}")
 if [ -z "$PUB_KEY" ]; then
     echo -e "${ERROR} Failed to fetch public key."
     exit 1
 fi
 
-#---------------------------
-# 创建 .ssh 与权限
-#---------------------------
 echo -e "${INFO} Preparing ~/.ssh directory..."
 mkdir -p ~/.ssh
 chmod 700 ~/.ssh
@@ -41,65 +61,40 @@ echo -e "${INFO} Installing SSH key (overwrite mode)..."
 echo "${PUB_KEY}" > ~/.ssh/authorized_keys
 chmod 600 ~/.ssh/authorized_keys
 
-#---------------------------
-# 强化 SSH 配置（绝不禁止 pubkey）
-#---------------------------
-SSHD_CONFIG="/etc/ssh/sshd_config"
-
 echo -e "${INFO} Securing SSH configuration..."
 
-# 保证 key 登录永远开启
+# 强制开启密钥登录
 $SUDO sed -i 's@^#*PubkeyAuthentication .*@PubkeyAuthentication yes@g' "$SSHD_CONFIG"
 
-# 防止 Include 覆盖 pubkey
-if [ -d /etc/ssh/sshd_config.d ]; then
-    for f in /etc/ssh/sshd_config.d/*.conf; do
+if [ -d "$SSHD_D" ]; then
+    for f in $SSHD_D/*.conf; do
         [ -f "$f" ] || continue
         $SUDO sed -i 's@^PubkeyAuthentication.*@PubkeyAuthentication yes@g' "$f"
     done
 fi
 
-# 确保 root 能用密钥登录
+# root 允许密钥
 $SUDO sed -i 's@^#*PermitRootLogin .*@PermitRootLogin yes@g' "$SSHD_CONFIG"
 
-# 禁用密码，不影响 pubkey
+# 禁用密码
 $SUDO sed -i 's@^#*PasswordAuthentication .*@PasswordAuthentication no@g' "$SSHD_CONFIG"
-
-# 禁止 challenge/keyboard interactive
 $SUDO sed -i 's@^#*KbdInteractiveAuthentication .*@KbdInteractiveAuthentication no@g' "$SSHD_CONFIG"
 
-#---------------------------
-# 清理 include 文件中的 password 设置
-#---------------------------
-if [ -d /etc/ssh/sshd_config.d ]; then
-    for f in /etc/ssh/sshd_config.d/*.conf; do
+if [ -d "$SSHD_D" ]; then
+    for f in $SSHD_D/*.conf; do
         [ -f "$f" ] || continue
         $SUDO sed -i 's@^PasswordAuthentication.*@PasswordAuthentication no@g' "$f"
         $SUDO sed -i 's@^#*PasswordAuthentication.*@PasswordAuthentication no@g' "$f"
+        $SUDO sed -i 's@^KbdInteractiveAuthentication.*@KbdInteractiveAuthentication no@g' "$f"
+        $SUDO sed -i 's@^#*KbdInteractiveAuthentication.*@KbdInteractiveAuthentication no@g' "$f"
     done
 fi
 
-#---------------------------
-# 自动识别系统并重启 sshd
-#---------------------------
-restart_sshd() {
-    if command -v systemctl >/dev/null 2>&1; then
-        $SUDO systemctl restart sshd && return 0
-    fi
-    if command -v rc-service >/dev/null 2>&1; then
-        $SUDO rc-service sshd restart && return 0
-    fi
-    if command -v service >/dev/null 2>&1; then
-        $SUDO service sshd restart && return 0
-    fi
-    return 1
-}
-
 echo -e "${INFO} Restarting sshd..."
-if restart_sshd; then
+if systemctl restart sshd 2>/dev/null || service sshd restart 2>/dev/null || rc-service sshd restart 2>/dev/null; then
     echo -e "${INFO} SSHD restarted successfully."
 else
-    echo -e "${ERROR} Failed to restart sshd. Please restart manually."
+    echo -e "${ERROR} Failed to restart sshd."
     exit 1
 fi
 
