@@ -1,55 +1,54 @@
 #!/bin/bash
-#每行一个任务,如果第一个字符为'#'则跳过该任务
+# 每行一个任务, 如果第一字符为 '#' 则跳过该任务
 
-# 全局变量
 Q_path=$(dirname "$0")/
 Q_path_ini="${Q_path}进程守护.txt"
 
+# 多空格压缩成一个空格
+normalize_cmd() {
+    local cmd="$1"
+    echo "$cmd" | sed 's/^[ \t]*//;s/[ \t]*$//;s/[ \t][ \t]*/ /g'
+}
 
 主函数() {
     数据处理
-    for line in "${lines[@]}"; do
-        # 跳过以 # 开头的行或空行
-        [[ "$line" =~ ^#.* || -z "$line" ]] && continue
 
-        # 执行 ps -aux | grep +本行内容
-        count=$(ps -aux | grep -w "$line" | wc -l)
+    # 一次性获取所有进程完整命令行
+    # 注意：ps aux 输出中命令行从第11列开始，但更简单方式是：
+    PROCESS_LIST=$(ps -eo args --no-header)
 
-        # 如果返回数据的行数超过1，跳过
-        if [ "$count" -gt 1 ]; then
-            continue
-        else
-            # 执行本行内容并在后台运行
-            echo "$line"
-            eval "$line &"
+    # 对 ps 输出也做规范化以提高对比准确性
+    NORMALIZED_PS=$(echo "$PROCESS_LIST" | sed 's/[ \t][ \t]*/ /g')
+
+    for raw in "${lines[@]}"; do
+        [[ "$raw" =~ ^#.* || -z "$raw" ]] && continue
+
+        # 规范化配置文件中的任务行
+        norm_task=$(normalize_cmd "$raw")
+
+        # 判断任务是否已存在（字符串匹配）
+        # 使用 grep -Fx 完整匹配一整行
+        echo "$NORMALIZED_PS" | grep -Fx "$norm_task" >/dev/null 2>&1
+        if [[ $? -eq 0 ]]; then
+            continue    # 已在运行
         fi
+
+        echo "启动任务: $raw"
+        nohup bash -c "$raw" >/dev/null 2>&1 &
     done
 }
 
 数据处理() {
-    # 检查文件是否存在，不存在则创建
-    if [[ ! -f "$Q_path_ini" ]]; then
-        touch "$Q_path_ini"
-    fi
-    # 读取文件并处理分隔符
-    if [[ -f "$Q_path_ini" ]]; then
-        # 检查文件是否为空
-        if [[ -s "$Q_path_ini" ]]; then
-            # 读取文件内容到变量
-            content=$(<"$Q_path_ini")
-            # 如果没有换行符，则将内容设为数组[1]并返回
-            if [[ "$content" != *$'\n'* ]]; then
-                lines[0]="$content"  # 使用数组索引0
-            else
-                IFS=$'\n' read -d '' -r -a lines < "$Q_path_ini"
-            fi
-        fi
-        
-        # 处理每一行，删除可能的 \r
-        for i in "${!lines[@]}"; do
-            lines[$i]=$(echo -e "${lines[$i]}" | tr -d '\r')
-        done
-    fi
+    [[ ! -f "$Q_path_ini" ]] && touch "$Q_path_ini"
+
+    # 读文件
+    mapfile -t lines < "$Q_path_ini"
+
+    # 去掉 Windows 回车
+    for i in "${!lines[@]}"; do
+        lines[$i]=$(echo "${lines[$i]}" | tr -d '\r')
+    done
 }
 
 主函数
+exit 0
