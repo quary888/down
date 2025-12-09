@@ -16,15 +16,22 @@ normalize_cmd() {
     # 取得 ps 输出（带参数）
     PS_RAW=$(ps -eo pid,ppid,user,args)
 
+    # 校验是否成功获取到 PID 字段（BusyBox/Alpine 也会输出 PID）
+    echo "$PS_RAW" | grep -q "PID"
+    if [[ $? -ne 0 ]]; then
+        echo "获取信息失败"
+        exit 1
+    fi
+
     # 去掉标题行
     PS_RAW=$(echo "$PS_RAW" | sed '1d')
 
     # 只保留 args（最后部分）
-    # BusyBox ps 中 pid/ppid/user 均为单列字段，因此使用 cut -d ' ' 去掉前三列
     PS_ARGS=$(echo "$PS_RAW" | awk '{ $1=""; $2=""; $3=""; sub(/^  */, ""); print }')
 
     # 将多空格标准化
     PS_NORMALIZED=$(echo "$PS_ARGS" | sed 's/[ \t][ \t]*/ /g')
+	#echo $PS_NORMALIZED
 
     for raw in "${lines[@]}"; do
         [[ "$raw" =~ ^#.* || -z "$raw" ]] && continue
