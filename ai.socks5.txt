@@ -3,3 +3,4 @@ copilot.microsoft.com
 chatgpt.com
 www.google.com
 gemini.google.com
+one.google.com
