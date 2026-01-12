@@ -1,0 +1,5 @@
+127.0.0.1&888&admin&123456
+copilot.microsoft.com
+chatgpt.com
+www.google.com
+gemini.google.com
