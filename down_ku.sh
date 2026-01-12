@@ -1,45 +1,74 @@
 #!/bin/sh
 
 REPO="quary888/down"
-API_URL="https://api.github.com/repos/$REPO/contents"
+API_BASE="https://api.github.com/repos/$REPO/contents"
 
-echo "正在获取仓库文件列表: $REPO"
-echo "----------------------------------------"
+# 当前浏览路径（根目录为空）
+CURRENT_PATH=""
 
-# 获取文件信息(JSON)，只取文件类型 entries
-FILE_LIST=$(curl -s $API_URL)
+list_and_select() {
+    local api_url
+    if [ -z "$CURRENT_PATH" ]; then
+        api_url="$API_BASE"
+    else
+        api_url="$API_BASE/$CURRENT_PATH"
+    fi
 
-# 提取文件名和下载 URL
-names=$(echo "$FILE_LIST" | grep '"name":' | cut -d '"' -f4)
-urls=$(echo "$FILE_LIST" | grep '"download_url":' | cut -d '"' -f4)
+    echo
+    echo "当前路径: /$CURRENT_PATH"
+    echo "----------------------------------------"
 
-i=1
+    RESPONSE=$(curl -s "$api_url")
 
-# 转数组
-names_arr=$(echo "$names")
-urls_arr=$(echo "$urls")
+    # 提取 name / type / download_url / path
+    names=$(echo "$RESPONSE" | grep '"name":' | cut -d '"' -f4)
+    types=$(echo "$RESPONSE" | grep '"type":' | cut -d '"' -f4)
+    urls=$(echo "$RESPONSE" | grep '"download_url":' | cut -d '"' -f4)
+    paths=$(echo "$RESPONSE" | grep '"path":' | cut -d '"' -f4)
 
-# 显示列表
-echo "文件列表："
-for name in $names_arr; do
-    echo "$i) $name"
-    i=$((i+1))
-done
+    i=1
+    echo "文件列表："
 
-echo "----------------------------------------"
-printf "请输入要下载的序号: "
-read num
+    # 显示列表（目录加标注）
+    paste -d '|' \
+        <(echo "$names") \
+        <(echo "$types") | while IFS="|" read name type; do
+            if [ "$type" = "dir" ]; then
+                echo "$i) [DIR]  $name"
+            else
+                echo "$i) [FILE] $name"
+            fi
+            i=$((i+1))
+        done
 
-# 获取对应的下载链接
-url=$(echo "$urls_arr" | sed -n "${num}p")
-filename=$(echo "$names_arr" | sed -n "${num}p")
+    echo "----------------------------------------"
+    printf "请输入序号 (Ctrl+C 退出): "
+    read num
 
-if [ -z "$url" ]; then
-    echo "序号无效"
-    exit 1
-fi
+    selected_type=$(echo "$types" | sed -n "${num}p")
+    selected_path=$(echo "$paths" | sed -n "${num}p")
+    selected_url=$(echo "$urls" | sed -n "${num}p")
+    selected_name=$(echo "$names" | sed -n "${num}p")
 
-echo "正在下载: $filename"
-curl -L -o "$filename" "$url"
+    if [ -z "$selected_type" ]; then
+        echo "序号无效"
+        exit 1
+    fi
 
-echo "下载完成: $filename"
+    # 如果是目录 → 进入目录，递归
+    if [ "$selected_type" = "dir" ]; then
+        CURRENT_PATH="$selected_path"
+        list_and_select
+    fi
+
+    # 如果是文件 → 下载
+    if [ "$selected_type" = "file" ]; then
+        echo "正在下载文件: $selected_name"
+        curl -L -o "$selected_name" "$selected_url"
+        echo "下载完成: $selected_name"
+        exit 0
+    fi
+}
+
+echo "正在浏览 GitHub 仓库: $REPO"
+list_and_select
