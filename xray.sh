@@ -257,21 +257,40 @@ else
 fi
 
 if [[ "$regen" =~ ^[Yy]$ ]]; then
-    echo "请选择 bufferSize 档位："
-    echo "1) 8 KB   (低配 / 高并发)"
-    echo "2) 16 KB  (推荐默认)"
-    echo "3) 32 KB  (高吞吐 / AI)"
-    read -rp "选择 [1-3，默认 2]: " buf_choice
+    # 选择 bufferSize 档位（强校验）
+    while true; do
+        echo "请选择 bufferSize 档位："
+        echo "1) 8 KB   (低配 / 高并发)"
+        echo "2) 16 KB  (推荐默认)"
+        echo "3) 32 KB  (高吞吐 / AI)"
+        read -rp "选择 [1-3，默认 2]: " buf_choice
 
-    case "${buf_choice:-2}" in
-        1) BUFFER_SIZE_KB=8 ;;
-        2) BUFFER_SIZE_KB=16 ;;
-        3) BUFFER_SIZE_KB=32 ;;
-        *) BUFFER_SIZE_KB=16 ;;
-    esac
+        # 回车默认 2
+        buf_choice=${buf_choice:-2}
 
+        case "$buf_choice" in
+            1)
+                BUFFER_SIZE_KB=8
+                break
+                ;;
+            2)
+                BUFFER_SIZE_KB=16
+                break
+                ;;
+            3)
+                BUFFER_SIZE_KB=32
+                break
+                ;;
+            *)
+                red "输入错误：请输入 1、2 或 3"
+                ;;
+        esac
+    done
+
+    # KB → Byte（Xray 使用 Byte）
     BUFFER_SIZE=$((BUFFER_SIZE_KB * 1024))
     green "bufferSize 设置为 ${BUFFER_SIZE_KB} KB (${BUFFER_SIZE} Bytes)"
+
 
     DEFAULT_PORT=10001
     read -rp "请输入 reality 监听端口 [默认 $DEFAULT_PORT]: " port
