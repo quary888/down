@@ -257,10 +257,21 @@ else
 fi
 
 if [[ "$regen" =~ ^[Yy]$ ]]; then
-    DEFAULT_BUFFER=1024
-    read -rp "设置 bufferSize(KB)(低配默认即可 否则BOOM) [默认 $DEFAULT_BUFFER]: " BUFFER_SIZE
-    BUFFER_SIZE=${BUFFER_SIZE:-$DEFAULT_BUFFER}
-    green "bufferSize 设置为 $BUFFER_SIZE KB"
+    echo "请选择 bufferSize 档位："
+    echo "1) 8 KB   (低配 / 高并发)"
+    echo "2) 16 KB  (推荐默认)"
+    echo "3) 32 KB  (高吞吐 / AI)"
+    read -rp "选择 [1-3，默认 2]: " buf_choice
+
+    case "${buf_choice:-2}" in
+        1) BUFFER_SIZE_KB=8 ;;
+        2) BUFFER_SIZE_KB=16 ;;
+        3) BUFFER_SIZE_KB=32 ;;
+        *) BUFFER_SIZE_KB=16 ;;
+    esac
+
+    BUFFER_SIZE=$((BUFFER_SIZE_KB * 1024))
+    green "bufferSize 设置为 ${BUFFER_SIZE_KB} KB (${BUFFER_SIZE} Bytes)"
 
     DEFAULT_PORT=10001
     read -rp "请输入 reality 监听端口 [默认 $DEFAULT_PORT]: " port
@@ -274,6 +285,7 @@ else
     green "保留现有 Reality 配置，只更新 SOCKS5 出站和域名路由"
     REALITY_INBOUND=$(jq '.inbounds' "$CONFIG_PATH")
 fi
+
 
 # ========= 读取 *.socks5.txt 并生成出站规则 =========
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
