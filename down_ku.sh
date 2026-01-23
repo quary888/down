@@ -1,4 +1,4 @@
-#!/bin/sh
+#!/usr/bin/env bash
 
 REPO="quary888/down"
 API_BASE="https://api.github.com/repos/$REPO/contents"
