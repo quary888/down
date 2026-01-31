@@ -4,3 +4,4 @@ chatgpt.com
 www.google.com
 gemini.google.com
 one.google.com
+x.ai
