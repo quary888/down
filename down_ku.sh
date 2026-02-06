@@ -1,4 +1,4 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 # 适配Debian/Alpine，下载后不退出，输入0退出，支持连续下载/目录切换
 
 REPO="quary888/down"
