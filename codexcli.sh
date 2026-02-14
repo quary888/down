@@ -7,7 +7,6 @@ set -euo pipefail
 # - 安装 Node.js LTS (NodeSource)
 # - 安装 codexcli (npm -g)
 # - 交互输入 API_BASE_URL 与 API_KEY
-# - 保存到 ~/.config/codexcli/env 并写入 ~/.bashrc 自动加载
 # =========================
 
 # 中文备注：统一输出
@@ -230,6 +229,85 @@ read_secret() {
   echo "${var}"
 }
 
+# 中文备注：判断是否官方 OpenAI URL（host=api.openai.com）
+check_guanfang_openai_url() {
+  local api_base_url="$1"
+  local host
+
+  host="$(echo -n "${api_base_url}" | sed -E 's#^https?://([^/]+).*$#\1#' | tr '[:upper:]' '[:lower:]')"
+  if [[ "${host}" == "api.openai.com" ]]; then
+    return 0
+  fi
+  return 1
+}
+
+# 中文备注：当使用非官方 URL 时，写入 ~/.codex/config.toml
+save_codex_feiguanfang_peizhi() {
+  local api_base_url="$1"
+  local api_key="$2"
+
+  local cfg_dir="${HOME}/.codex"
+  local cfg_file="${cfg_dir}/config.toml"
+  local marker_begin="# >>> codexcli feiguanfang provider begin >>>"
+  local marker_end="# <<< codexcli feiguanfang provider end <<<"
+  local marker_profile_begin="# >>> codexcli moren profile begin >>>"
+  local marker_profile_end="# <<< codexcli moren profile end <<<"
+  local escaped_base_url
+  local escaped_api_key
+
+  mkdir -p "${cfg_dir}"
+  chmod 700 "${cfg_dir}"
+  if [[ ! -f "${cfg_file}" ]]; then
+    touch "${cfg_file}"
+  fi
+
+  escaped_base_url="${api_base_url//\\/\\\\}"
+  escaped_base_url="${escaped_base_url//\"/\\\"}"
+  escaped_api_key="${api_key//\\/\\\\}"
+  escaped_api_key="${escaped_api_key//\"/\\\"}"
+
+  # 中文备注：幂等更新脚本写入区块，避免重复叠加
+  if grep -qF "${marker_begin}" "${cfg_file}"; then
+    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${cfg_file}"
+  fi
+
+  cat >> "${cfg_file}" <<EOF
+
+${marker_begin}
+[model_providers.codexcli_custom]
+name = "codexcli_custom"
+base_url = "${escaped_base_url}"
+experimental_bearer_token = "${escaped_api_key}"
+wire_api = "responses"
+
+[profiles.codexcli_custom]
+model_provider = "codexcli_custom"
+${marker_end}
+EOF
+
+  # 中文备注：若用户尚未配置默认 profile，则自动设置为 codexcli_custom
+  if ! grep -qE '^[[:space:]]*profile[[:space:]]*=' "${cfg_file}"; then
+    if grep -qF "${marker_profile_begin}" "${cfg_file}"; then
+      sed -i.bak "/${marker_profile_begin}/,/${marker_profile_end}/d" "${cfg_file}"
+    fi
+
+    cat >> "${cfg_file}" <<EOF
+
+${marker_profile_begin}
+profile = "codexcli_custom"
+${marker_profile_end}
+EOF
+    log_info "已自动设置默认 profile=codexcli_custom（未检测到既有 profile 配置）"
+  else
+    log_info "检测到你已有 profile 配置，未覆盖默认 profile。"
+    log_info "可使用：codex --profile codexcli_custom"
+  fi
+
+  chmod 600 "${cfg_file}"
+  log_info "检测到非官方 URL，已写入 Codex 配置：${cfg_file}"
+  log_info "建议检查生效方式：codex --profile codexcli_custom"
+}
+
 # 中文备注：保存配置到 env 文件，并写入 ~/.bashrc 自动 source
 save_api_peizhi() {
   local api_base_url="$1"
@@ -301,7 +379,7 @@ main() {
   install_node_lts
   install_codexcli_npm
 
-  log_info "开始配置 API 接口与 KEY（将保存到 ~/.config/codexcli/env）"
+  log_info "开始配置 API 接口与 KEY（将保存到 ~/.config/codexcli/env；非官方 URL 还会写入 ~/.codex/config.toml）"
 
   # 中文备注：API_BASE_URL 可输入官方或自建代理/网关地址
   local default_base="https://api.openai.com/v1"
@@ -324,12 +402,20 @@ main() {
 
 
   local api_key
-  api_key="$(read_secret "请输入 API KEY（不回显）")"
+  api_key="$(read_input "请输入 API KEY（明文显示）")"
   api_key="$(echo -n "${api_key}" | tr -d '[:space:]')"
   save_api_peizhi "${api_base_url}" "${api_key}"
+  if ! check_guanfang_openai_url "${api_base_url}"; then
+    save_codex_feiguanfang_peizhi "${api_base_url}" "${api_key}"
+  fi
 
-  log_info "完成。新开终端或执行：source ~/.bashrc 以确保环境变量加载。"
-  log_info "已设置：OPENAI_BASE_URL / OPENAI_API_KEY"
+  # 中文备注：按用户习惯显式 source 配置文件，确保脚本内后续命令可读取环境变量
+  # shellcheck disable=SC1091
+  source "${HOME}/.config/codexcli/env" || true
+
+  #log_info "完成。新开终端或执行：source ~/.bashrc 以确保环境变量加载。"
+  log_info "如果是首次安装codexcli 指定API是不生效的 需要执行一次codex ,访问失败后后再执行一次脚本即可生效"
+  #log_info "已设置：OPENAI_BASE_URL / OPENAI_API_KEY"
 }
 
 main "$@"
