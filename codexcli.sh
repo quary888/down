@@ -257,7 +257,6 @@ check_guanfang_openai_url() {
   fi
   return 1
 }
-
 save_codex_zuigao_quanxian_peizhi() {
   local cfg_dir="${HOME}/.codex"
   local cfg_file="${cfg_dir}/config.toml"
@@ -270,23 +269,42 @@ save_codex_zuigao_quanxian_peizhi() {
     touch "${cfg_file}"
   fi
 
-  # 中文备注：幂等更新脚本写入区块，避免重复叠加
-  if grep -qF "${marker_begin}" "${cfg_file}"; then
-    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${cfg_file}"
-  fi
+  # 中文备注：先移除旧 marker 区块（如存在），避免重复叠加
+  # 同时保证根级键放在所有 [table] 之前（TOML 规则），避免解析异常
+  local tmp_clean
+  tmp_clean="$(mktemp)"
+  awk -v b="${marker_begin}" -v e="${marker_end}" '
+    BEGIN{skip=0}
+    index($0,b){skip=1; next}
+    index($0,e){skip=0; next}
+    skip==0{print}
+  ' "${cfg_file}" > "${tmp_clean}"
 
-  cat >> "${cfg_file}" <<EOF
-
+  # 中文备注：写入“最高权限 + 不再询问”的根级配置（合法键）
+  # - approval_policy: 控制是否询问审批（never = 不询问）
+  # - sandbox_mode: danger-full-access = 最高权限沙箱策略
+  # - notice.hide_full_access_warning: 记录已确认全权限警告，避免再次提示
+  # 参考：配置键与类型见官方 config reference
+  local tmp_new
+  tmp_new="$(mktemp)"
+  cat > "${tmp_new}" <<EOF
 ${marker_begin}
-# 中文备注：将 codex 运行权限设为最高权限（跳过审批 + 关闭沙箱）
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
+notice.hide_full_access_warning = true
 ${marker_end}
+
 EOF
+
+  # 中文备注：确保权限块位于文件顶部（所有 [table] 之前），再拼接原内容
+  cat "${tmp_new}" "${tmp_clean}" > "${cfg_file}"
+  rm -f "${tmp_new}" "${tmp_clean}"
 
   chmod 600 "${cfg_file}"
   log_info "已写入 Codex 最高权限配置：${cfg_file}"
 }
+
+
 
 # 中文备注：当使用非官方 URL 时，写入 ~/.codex/config.toml
 save_codex_feiguanfang_peizhi() {
@@ -329,6 +347,9 @@ wire_api = "responses"
 
 [profiles.codexcli_custom]
 model_provider = "codexcli_custom"
+# 中文备注：在自定义 profile 内也强制最高权限，避免被 profile 合并逻辑覆盖
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
 ${marker_end}
 EOF
 
