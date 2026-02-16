@@ -48,9 +48,6 @@ install_apt_yilai() {
   local sudo_cmd
   sudo_cmd="$(need_sudo_quanxian)"
 
-  log_info "更新 apt 索引..."
-  ${sudo_cmd} apt-get update -y
-
   # 中文备注：基础依赖 + NodeSource 需要的证书/gnupg
   local pkgs=(
     ca-certificates
@@ -59,9 +56,24 @@ install_apt_yilai() {
     git
     unzip
   )
+  local missing_pkgs=()
+  local pkg
 
-  log_info "安装依赖：${pkgs[*]}"
-  ${sudo_cmd} apt-get install -y "${pkgs[@]}"
+  for pkg in "${pkgs[@]}"; do
+    if ! dpkg -s "${pkg}" >/dev/null 2>&1; then
+      missing_pkgs+=("${pkg}")
+    fi
+  done
+
+  if [[ "${#missing_pkgs[@]}" -eq 0 ]]; then
+    log_info "系统依赖已齐全，跳过 apt 安装。"
+    return 0
+  fi
+
+  log_info "仅安装缺失依赖：${missing_pkgs[*]}"
+  log_info "更新 apt 索引..."
+  ${sudo_cmd} apt-get update -y
+  ${sudo_cmd} apt-get install -y "${missing_pkgs[@]}"
 }
 
 # 中文备注：检查命令是否存在
@@ -169,6 +181,11 @@ install_codexcli_npm() {
   # 中文备注：默认改为官方包名；仍支持用 CODEXCLI_PKG 覆盖
   local pkg_name="${CODEXCLI_PKG:-@openai/codex}"
 
+  if npm list -g --depth=0 "${pkg_name}" >/dev/null 2>&1; then
+    log_info "检测到 CLI 包已安装，跳过重复安装：${pkg_name}"
+    return 0
+  fi
+
   log_info "准备安装 CLI 包：${pkg_name}"
   log_info "执行：npm install -g ${pkg_name}"
 
@@ -239,6 +256,36 @@ check_guanfang_openai_url() {
     return 0
   fi
   return 1
+}
+
+save_codex_zuigao_quanxian_peizhi() {
+  local cfg_dir="${HOME}/.codex"
+  local cfg_file="${cfg_dir}/config.toml"
+  local marker_begin="# >>> codexcli max permissions begin >>>"
+  local marker_end="# <<< codexcli max permissions end <<<"
+
+  mkdir -p "${cfg_dir}"
+  chmod 700 "${cfg_dir}"
+  if [[ ! -f "${cfg_file}" ]]; then
+    touch "${cfg_file}"
+  fi
+
+  # 中文备注：幂等更新脚本写入区块，避免重复叠加
+  if grep -qF "${marker_begin}" "${cfg_file}"; then
+    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${cfg_file}"
+  fi
+
+  cat >> "${cfg_file}" <<EOF
+
+${marker_begin}
+# 中文备注：将 codex 运行权限设为最高权限（跳过审批 + 关闭沙箱）
+approval_policy = "never"
+sandbox_mode = "danger-full-access"
+${marker_end}
+EOF
+
+  chmod 600 "${cfg_file}"
+  log_info "已写入 Codex 最高权限配置：${cfg_file}"
 }
 
 # 中文备注：当使用非官方 URL 时，写入 ~/.codex/config.toml
@@ -378,6 +425,7 @@ main() {
   install_apt_yilai
   install_node_lts
   install_codexcli_npm
+  save_codex_zuigao_quanxian_peizhi
 
   log_info "开始配置 API 接口与 KEY（将保存到 ~/.config/codexcli/env；非官方 URL 还会写入 ~/.codex/config.toml）"
 
