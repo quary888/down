@@ -13,6 +13,13 @@ normalize_cmd() {
 主函数() {
     数据处理
 
+    # 统一运行环境，避免守护启动与手工 SSH 启动环境不一致
+    export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:${PATH}"
+    if [[ -z "${HOME}" ]]; then
+        HOME=$(getent passwd "$(id -u)" | awk -F: '{print $6}')
+        export HOME
+    fi
+
     # 取得 ps 输出（带参数）
     PS_RAW=$(ps -eo pid,ppid,user,args)
 
@@ -46,7 +53,8 @@ normalize_cmd() {
         fi
 
         echo "启动任务: $raw"
-        nohup bash -c "$raw" >/dev/null 2>&1 &
+        # 在脚本所在目录执行，确保相对路径与手工启动一致；不写日志文件
+        nohup bash -lc "cd \"$Q_path\" && $raw" >/dev/null 2>&1 &
     done
 }
 
