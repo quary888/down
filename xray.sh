@@ -69,6 +69,8 @@ done
 # ========= 安装目录 =========
 INSTALL_DIR="/opt/xray"; BIN_PATH="$INSTALL_DIR/xray"
 CONFIG_PATH="$INSTALL_DIR/config.json"; SHARE_LINK_PATH="$INSTALL_DIR/share-link.txt"
+NODE_JIEDIAN_MINGCHENG_PATH="$INSTALL_DIR/node_jiedian_mingcheng.txt"
+NODE_JIEDIAN_MINGCHENG=""
 mkdir -p "$INSTALL_DIR"
 
 # ========= 结束所有 xray 进程 =========
@@ -132,6 +134,32 @@ if $re_download; then
 fi
 
 # ========= Reality 配置生成函数 =========
+# load_jiedian_mingcheng 读取或初始化节点名称。
+# 参数：
+# 返回：
+# 行为说明：每次运行先检查配置目录中的节点名称文件，无值则交互输入并写盘。
+load_jiedian_mingcheng() {
+    local node_shuru_mingcheng=""
+
+    if [ -s "$NODE_JIEDIAN_MINGCHENG_PATH" ]; then
+        NODE_JIEDIAN_MINGCHENG=$(tr -d '\r' < "$NODE_JIEDIAN_MINGCHENG_PATH" | head -n 1)
+    fi
+
+    while [ -z "$NODE_JIEDIAN_MINGCHENG" ]; do
+        read -rp "请输入节点名称(用于分享链接后缀): " node_shuru_mingcheng
+        node_shuru_mingcheng=$(printf "%s" "$node_shuru_mingcheng" | tr -d '\r')
+        if [ -n "$node_shuru_mingcheng" ]; then
+            NODE_JIEDIAN_MINGCHENG="$node_shuru_mingcheng"
+            printf "%s\n" "$NODE_JIEDIAN_MINGCHENG" > "$NODE_JIEDIAN_MINGCHENG_PATH"
+            green "节点名称已保存到 $NODE_JIEDIAN_MINGCHENG_PATH"
+        else
+            red "节点名称不能为空，请重新输入"
+        fi
+    done
+}
+
+load_jiedian_mingcheng
+
 generate_reality_config() {
     local port="$1"
     local dest_server="$2"
@@ -242,7 +270,7 @@ EOF
     echo "你选择的 IP 是：$IP"
     red "请检查入口IP是否正确,有些小鸡出口入口IP不一样!"
 #获取IP结束
-    share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=$Q_FP&pbk=$password&sid=$short_id#Xray-Reality"
+    share_link="vless://$UUID@$IP:$port?encryption=none&flow=xtls-rprx-vision&security=reality&type=tcp&sni=$dest_server&fp=$Q_FP&pbk=$password&sid=$short_id#$NODE_JIEDIAN_MINGCHENG"
     printf "%s\n" "$share_link" > "$SHARE_LINK_PATH"
     green "分享链接已保存到 $SHARE_LINK_PATH"
     yellow "$share_link"
