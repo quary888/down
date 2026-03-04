@@ -296,8 +296,8 @@ if [[ "$regen" =~ ^[Yy]$ ]]; then
     read -rp "请输入 reality 监听端口 [默认 $DEFAULT_PORT]: " port
     port=${port:-$DEFAULT_PORT}
 
-    read -rp "请输入回落域名 [默认 www.microsoft.com]: " dest_server
-    dest_server=${dest_server:-www.microsoft.com}
+    read -rp "请输入回落域名 [默认 repo1.maven.org]: " dest_server
+    dest_server=${dest_server:-repo1.maven.org}
 
     generate_reality_config "$port" "$dest_server"
 else
