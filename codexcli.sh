@@ -306,15 +306,29 @@ EOF
 
 
 
-# 中文备注：当使用非官方 URL 时，写入 ~/.codex/config.toml
-save_codex_feiguanfang_peizhi() {
+# 中文备注：清理旧版写入 ~/.bashrc 的 env 自动加载片段（迁移到 config.toml）
+cleanup_legacy_env_bashrc_loader() {
+  local bashrc="${HOME}/.bashrc"
+  local marker_begin="# >>> codexcli env begin >>>"
+  local marker_end="# <<< codexcli env end <<<"
+
+  if [[ -f "${bashrc}" ]] && grep -qF "${marker_begin}" "${bashrc}"; then
+    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${bashrc}"
+    log_info "检测到旧版 ~/.bashrc 环境变量加载片段，已移除（备份：${bashrc}.bak）"
+  fi
+}
+
+# 中文备注：统一将 provider + token 写入 ~/.codex/config.toml（不再依赖环境变量文件）
+save_codex_provider_peizhi() {
   local api_base_url="$1"
   local api_key="$2"
 
   local cfg_dir="${HOME}/.codex"
   local cfg_file="${cfg_dir}/config.toml"
-  local marker_begin="# >>> codexcli feiguanfang provider begin >>>"
-  local marker_end="# <<< codexcli feiguanfang provider end <<<"
+  local marker_begin="# >>> codexcli provider begin >>>"
+  local marker_end="# <<< codexcli provider end <<<"
+  local legacy_marker_begin="# >>> codexcli feiguanfang provider begin >>>"
+  local legacy_marker_end="# <<< codexcli feiguanfang provider end <<<"
   local marker_profile_begin="# >>> codexcli moren profile begin >>>"
   local marker_profile_end="# <<< codexcli moren profile end <<<"
   local escaped_base_url
@@ -335,6 +349,10 @@ save_codex_feiguanfang_peizhi() {
   if grep -qF "${marker_begin}" "${cfg_file}"; then
     sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${cfg_file}"
   fi
+  # 中文备注：兼容清理旧版 marker，避免历史块残留导致配置混乱
+  if grep -qF "${legacy_marker_begin}" "${cfg_file}"; then
+    sed -i.bak "/${legacy_marker_begin}/,/${legacy_marker_end}/d" "${cfg_file}"
+  fi
 
   cat >> "${cfg_file}" <<EOF
 
@@ -347,6 +365,7 @@ wire_api = "responses"
 
 [profiles.codexcli_custom]
 model_provider = "codexcli_custom"
+model_verbosity = "high"
 # 中文备注：在自定义 profile 内也强制最高权限，避免被 profile 合并逻辑覆盖
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
@@ -372,73 +391,8 @@ EOF
   fi
 
   chmod 600 "${cfg_file}"
-  log_info "检测到非官方 URL，已写入 Codex 配置：${cfg_file}"
+  log_info "已写入 Codex Provider 配置：${cfg_file}"
   log_info "建议检查生效方式：codex --profile codexcli_custom"
-}
-
-# 中文备注：保存配置到 env 文件，并写入 ~/.bashrc 自动 source
-save_api_peizhi() {
-  local api_base_url="$1"
-  local api_key="$2"
-
-  if [[ -z "${api_base_url}" ]]; then
-    log_err "API_BASE_URL 不能为空。"
-    exit 1
-  fi
-  if [[ -z "${api_key}" ]]; then
-    log_err "API_KEY 不能为空。"
-    exit 1
-  fi
-
-  local cfg_dir="${HOME}/.config/codexcli"
-  local env_file="${cfg_dir}/env"
-  mkdir -p "${cfg_dir}"
-  chmod 700 "${cfg_dir}"
-
-  # 中文备注：写入 env（覆盖式），并限制权限
-  umask 177
-  cat > "${env_file}" <<EOF
-# 自动生成：codexcli 环境变量
-export OPENAI_BASE_URL="${api_base_url}"
-export OPENAI_API_KEY="${api_key}"
-EOF
-  chmod 600 "${env_file}"
-
-  log_info "已保存配置：${env_file}"
-
-  # 中文备注：向 ~/.bashrc 写入一次性 source 片段（幂等）
-  local bashrc="${HOME}/.bashrc"
-  local marker_begin="# >>> codexcli env begin >>>"
-  local marker_end="# <<< codexcli env end <<<"
-
-  if [[ ! -f "${bashrc}" ]]; then
-    touch "${bashrc}"
-  fi
-
-  # 若已存在旧片段，先删除再重写，避免重复
-  if grep -qF "${marker_begin}" "${bashrc}"; then
-    log_info "检测到 ~/.bashrc 已存在 codexcli 配置片段，进行更新..."
-    # 用 sed 删除 marker 区间
-    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${bashrc}"
-  else
-    log_info "写入 ~/.bashrc 自动加载配置..."
-  fi
-
-  cat >> "${bashrc}" <<EOF
-
-${marker_begin}
-# 中文备注：自动加载 codexcli 环境变量（由安装脚本写入）
-if [ -f "${env_file}" ]; then
-  . "${env_file}"
-fi
-${marker_end}
-EOF
-
-  log_info "已更新：${bashrc}（备份如存在：${bashrc}.bak）"
-  log_info "当前会话立即生效：source ${env_file}"
-  # 中文备注：当前 shell 尝试加载（不强制）
-  # shellcheck disable=SC1090
-  . "${env_file}" || true
 }
 
 main() {
@@ -448,7 +402,7 @@ main() {
   install_codexcli_npm
   save_codex_zuigao_quanxian_peizhi
 
-  log_info "开始配置 API 接口与 KEY（将保存到 ~/.config/codexcli/env；非官方 URL 还会写入 ~/.codex/config.toml）"
+  log_info "开始配置 API 接口与 KEY（将写入 ~/.codex/config.toml）"
 
   # 中文备注：API_BASE_URL 可输入官方或自建代理/网关地址
   local default_base="https://api.openai.com/v1"
@@ -473,14 +427,8 @@ main() {
   local api_key
   api_key="$(read_input "请输入 API KEY（明文显示）")"
   api_key="$(echo -n "${api_key}" | tr -d '[:space:]')"
-  save_api_peizhi "${api_base_url}" "${api_key}"
-  if ! check_guanfang_openai_url "${api_base_url}"; then
-    save_codex_feiguanfang_peizhi "${api_base_url}" "${api_key}"
-  fi
-
-  # 中文备注：按用户习惯显式 source 配置文件，确保脚本内后续命令可读取环境变量
-  # shellcheck disable=SC1091
-  source "${HOME}/.config/codexcli/env" || true
+  cleanup_legacy_env_bashrc_loader
+  save_codex_provider_peizhi "${api_base_url}" "${api_key}"
 
   #log_info "完成。新开终端或执行：source ~/.bashrc 以确保环境变量加载。"
   log_info "如果是首次安装codexcli 指定API是不生效的 需要执行一次codex ,访问失败后后再执行一次脚本即可生效"
