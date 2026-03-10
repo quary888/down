@@ -2,17 +2,63 @@
 set -euo pipefail
 
 # =========================
-# Debian: codexcli 安装 + 配置脚本
-# - 自动检查/安装依赖
-# - 安装 Node.js LTS (NodeSource)
-# - 安装 codexcli (npm -g)
-# - 交互输入 API_BASE_URL 与 API_KEY
+# Debian: codexcli 安装 + 菜单脚本
+# - 启动后默认检查/安装依赖
+# - 菜单 1：设置 API KEY + 强制 codex 走自定义 provider
+# - 菜单 2：清除菜单 1 写入的配置，恢复为可官方登录的初始状态
 # =========================
 
 # 中文备注：统一输出
 log_info() { echo "[INFO] $*"; }
 log_warn() { echo "[WARN] $*" >&2; }
 log_err()  { echo "[ERR ] $*" >&2; }
+
+# 中文备注：统一删除指定 marker 区块，保证幂等更新
+delete_marker_qukuai_wenjian() {
+  local file_lujing="$1"
+  local begin_biaoji="$2"
+  local end_biaoji="$3"
+
+  if [[ ! -f "${file_lujing}" ]]; then
+    return 0
+  fi
+
+  local tmp_wenjian
+  tmp_wenjian="$(mktemp)"
+
+  awk -v begin_biaoji="${begin_biaoji}" -v end_biaoji="${end_biaoji}" '
+    BEGIN { skip_zhuangtai = 0 }
+    index($0, begin_biaoji) { skip_zhuangtai = 1; next }
+    index($0, end_biaoji) { skip_zhuangtai = 0; next }
+    skip_zhuangtai == 0 { print }
+  ' "${file_lujing}" > "${tmp_wenjian}"
+
+  mv "${tmp_wenjian}" "${file_lujing}"
+}
+
+# 中文备注：若文件只剩空白，则直接删除，恢复更接近初始状态
+cleanup_kong_wenjian() {
+  local file_lujing="$1"
+
+  if [[ ! -f "${file_lujing}" ]]; then
+    return 0
+  fi
+
+  if [[ -z "$(tr -d '[:space:]' < "${file_lujing}")" ]]; then
+    rm -f "${file_lujing}"
+  fi
+}
+
+# 中文备注：转义 TOML 基本字符串
+escape_toml_jiben_zifuchuan() {
+  local raw_neirong="$1"
+  local escaped_neirong
+
+  escaped_neirong="${raw_neirong//\\/\\\\}"
+  escaped_neirong="${escaped_neirong//\"/\\\"}"
+
+  echo "${escaped_neirong}"
+}
 
 # 中文备注：检查是否为 Debian/Ubuntu 体系（此脚本按 Debian 写）
 check_debian_xitong() {
@@ -269,25 +315,21 @@ save_codex_zuigao_quanxian_peizhi() {
     touch "${cfg_file}"
   fi
 
-  # 中文备注：先移除旧 marker 区块（如存在），避免重复叠加
-  # 同时保证根级键放在所有 [table] 之前（TOML 规则），避免解析异常
-  local tmp_clean
-  tmp_clean="$(mktemp)"
-  awk -v b="${marker_begin}" -v e="${marker_end}" '
-    BEGIN{skip=0}
-    index($0,b){skip=1; next}
-    index($0,e){skip=0; next}
-    skip==0{print}
-  ' "${cfg_file}" > "${tmp_clean}"
+  # 中文备注：先移除旧 marker 区块，避免重复叠加
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_begin}" "${marker_end}"
 
   # 中文备注：写入“最高权限 + 不再询问”的根级配置（合法键）
   # - approval_policy: 控制是否询问审批（never = 不询问）
   # - sandbox_mode: danger-full-access = 最高权限沙箱策略
   # - notice.hide_full_access_warning: 记录已确认全权限警告，避免再次提示
   # 参考：配置键与类型见官方 config reference
-  local tmp_new
-  tmp_new="$(mktemp)"
-  cat > "${tmp_new}" <<EOF
+  local tmp_yuanshi_wenjian
+  local tmp_xin_wenjian
+  tmp_yuanshi_wenjian="$(mktemp)"
+  tmp_xin_wenjian="$(mktemp)"
+  cp "${cfg_file}" "${tmp_yuanshi_wenjian}"
+
+  cat > "${tmp_xin_wenjian}" <<EOF
 ${marker_begin}
 approval_policy = "never"
 sandbox_mode = "danger-full-access"
@@ -297,8 +339,8 @@ ${marker_end}
 EOF
 
   # 中文备注：确保权限块位于文件顶部（所有 [table] 之前），再拼接原内容
-  cat "${tmp_new}" "${tmp_clean}" > "${cfg_file}"
-  rm -f "${tmp_new}" "${tmp_clean}"
+  cat "${tmp_xin_wenjian}" "${tmp_yuanshi_wenjian}" > "${cfg_file}"
+  rm -f "${tmp_xin_wenjian}" "${tmp_yuanshi_wenjian}"
 
   chmod 600 "${cfg_file}"
   log_info "已写入 Codex 最高权限配置：${cfg_file}"
@@ -313,8 +355,8 @@ cleanup_legacy_env_bashrc_loader() {
   local marker_end="# <<< codexcli env end <<<"
 
   if [[ -f "${bashrc}" ]] && grep -qF "${marker_begin}" "${bashrc}"; then
-    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${bashrc}"
-    log_info "检测到旧版 ~/.bashrc 环境变量加载片段，已移除（备份：${bashrc}.bak）"
+    delete_marker_qukuai_wenjian "${bashrc}" "${marker_begin}" "${marker_end}"
+    log_info "检测到旧版 ~/.bashrc 环境变量加载片段，已移除。"
   fi
 }
 
@@ -333,6 +375,8 @@ save_codex_provider_peizhi() {
   local marker_profile_end="# <<< codexcli moren profile end <<<"
   local escaped_base_url
   local escaped_api_key
+  local tmp_yuanshi_wenjian
+  local tmp_profile_wenjian
 
   mkdir -p "${cfg_dir}"
   chmod 700 "${cfg_dir}"
@@ -340,19 +384,28 @@ save_codex_provider_peizhi() {
     touch "${cfg_file}"
   fi
 
-  escaped_base_url="${api_base_url//\\/\\\\}"
-  escaped_base_url="${escaped_base_url//\"/\\\"}"
-  escaped_api_key="${api_key//\\/\\\\}"
-  escaped_api_key="${escaped_api_key//\"/\\\"}"
+  escaped_base_url="$(escape_toml_jiben_zifuchuan "${api_base_url}")"
+  escaped_api_key="$(escape_toml_jiben_zifuchuan "${api_key}")"
 
   # 中文备注：幂等更新脚本写入区块，避免重复叠加
-  if grep -qF "${marker_begin}" "${cfg_file}"; then
-    sed -i.bak "/${marker_begin}/,/${marker_end}/d" "${cfg_file}"
-  fi
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_begin}" "${marker_end}"
   # 中文备注：兼容清理旧版 marker，避免历史块残留导致配置混乱
-  if grep -qF "${legacy_marker_begin}" "${cfg_file}"; then
-    sed -i.bak "/${legacy_marker_begin}/,/${legacy_marker_end}/d" "${cfg_file}"
-  fi
+  delete_marker_qukuai_wenjian "${cfg_file}" "${legacy_marker_begin}" "${legacy_marker_end}"
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_profile_begin}" "${marker_profile_end}"
+
+  tmp_yuanshi_wenjian="$(mktemp)"
+  tmp_profile_wenjian="$(mktemp)"
+  cp "${cfg_file}" "${tmp_yuanshi_wenjian}"
+
+  cat > "${tmp_profile_wenjian}" <<EOF
+${marker_profile_begin}
+profile = "codexcli_custom"
+${marker_profile_end}
+
+EOF
+
+  cat "${tmp_profile_wenjian}" "${tmp_yuanshi_wenjian}" > "${cfg_file}"
+  rm -f "${tmp_profile_wenjian}" "${tmp_yuanshi_wenjian}"
 
   cat >> "${cfg_file}" <<EOF
 
@@ -372,67 +425,180 @@ sandbox_mode = "danger-full-access"
 ${marker_end}
 EOF
 
-  # 中文备注：若用户尚未配置默认 profile，则自动设置为 codexcli_custom
-  if ! grep -qE '^[[:space:]]*profile[[:space:]]*=' "${cfg_file}"; then
-    if grep -qF "${marker_profile_begin}" "${cfg_file}"; then
-      sed -i.bak "/${marker_profile_begin}/,/${marker_profile_end}/d" "${cfg_file}"
-    fi
-
-    cat >> "${cfg_file}" <<EOF
-
-${marker_profile_begin}
-profile = "codexcli_custom"
-${marker_profile_end}
-EOF
-    log_info "已自动设置默认 profile=codexcli_custom（未检测到既有 profile 配置）"
-  else
-    log_info "检测到你已有 profile 配置，未覆盖默认 profile。"
-    log_info "可使用：codex --profile codexcli_custom"
-  fi
-
   chmod 600 "${cfg_file}"
   log_info "已写入 Codex Provider 配置：${cfg_file}"
-  log_info "建议检查生效方式：codex --profile codexcli_custom"
+  log_info "已写入根级默认 profile=codexcli_custom"
 }
 
+# 中文备注：写入项目 trust 配置，避免目录信任确认提示
+save_codex_project_trust_peizhi() {
+  local project_mulu="$1"
+  local cfg_dir="${HOME}/.codex"
+  local cfg_file="${cfg_dir}/config.toml"
+  local marker_begin="# >>> codexcli trusted project begin >>>"
+  local marker_end="# <<< codexcli trusted project end <<<"
+  local escaped_project_mulu
+
+  mkdir -p "${cfg_dir}"
+  chmod 700 "${cfg_dir}"
+  if [[ ! -f "${cfg_file}" ]]; then
+    touch "${cfg_file}"
+  fi
+
+  escaped_project_mulu="$(escape_toml_jiben_zifuchuan "${project_mulu}")"
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_begin}" "${marker_end}"
+
+  cat >> "${cfg_file}" <<EOF
+
+${marker_begin}
+[projects."${escaped_project_mulu}"]
+trust_level = "trusted"
+${marker_end}
+EOF
+
+  chmod 600 "${cfg_file}"
+  log_info "已将项目目录标记为 trusted：${project_mulu}"
+}
+
+# 中文备注：写入 shell 包装，让用户直接输入 codex 时自动带上自定义 profile 和最高权限参数
+save_codex_qiangzhi_profile_bashrc() {
+  local bashrc_lujing="${HOME}/.bashrc"
+  local marker_begin="# >>> codexcli wrapper begin >>>"
+  local marker_end="# <<< codexcli wrapper end <<<"
+
+  touch "${bashrc_lujing}"
+  delete_marker_qukuai_wenjian "${bashrc_lujing}" "${marker_begin}" "${marker_end}"
+
+  cat >> "${bashrc_lujing}" <<'EOF'
+
+# >>> codexcli wrapper begin >>>
+codex() {
+  command codex --dangerously-bypass-approvals-and-sandbox -p codexcli_custom "$@"
+}
+# <<< codexcli wrapper end <<<
+EOF
+
+  log_info "已写入 ~/.bashrc 包装函数：后续直接执行 codex 会自动附带危险模式和 codexcli_custom"
+}
+
+# 中文备注：清理自定义 provider、默认 profile 与最高权限配置
+clear_codex_zidingyi_peizhi() {
+  local cfg_file="${HOME}/.codex/config.toml"
+  local marker_quanxian_begin="# >>> codexcli max permissions begin >>>"
+  local marker_quanxian_end="# <<< codexcli max permissions end <<<"
+  local marker_provider_begin="# >>> codexcli provider begin >>>"
+  local marker_provider_end="# <<< codexcli provider end <<<"
+  local marker_profile_begin="# >>> codexcli moren profile begin >>>"
+  local marker_profile_end="# <<< codexcli moren profile end <<<"
+  local marker_trust_begin="# >>> codexcli trusted project begin >>>"
+  local marker_trust_end="# <<< codexcli trusted project end <<<"
+  local marker_wrapper_begin="# >>> codexcli wrapper begin >>>"
+  local marker_wrapper_end="# <<< codexcli wrapper end <<<"
+  local auth_file="${HOME}/.codex/auth.json"
+
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_quanxian_begin}" "${marker_quanxian_end}"
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_provider_begin}" "${marker_provider_end}"
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_profile_begin}" "${marker_profile_end}"
+  delete_marker_qukuai_wenjian "${cfg_file}" "${marker_trust_begin}" "${marker_trust_end}"
+  cleanup_kong_wenjian "${cfg_file}"
+
+  delete_marker_qukuai_wenjian "${HOME}/.bashrc" "${marker_wrapper_begin}" "${marker_wrapper_end}"
+  delete_marker_qukuai_wenjian "${HOME}/.profile" "${marker_wrapper_begin}" "${marker_wrapper_end}"
+
+  if [[ -f "${auth_file}" ]]; then
+    rm -f "${auth_file}"
+    log_info "已清除登录态文件：${auth_file}"
+  fi
+
+  log_info "已清除菜单 1 写入的配置。"
+  log_info "重新打开终端后，可直接使用官方方式执行：codex login"
+}
+
+# 中文备注：菜单 1，设置 API KEY 并强制 codex 走自定义 provider
+setup_api_key_zidingyi_provider() {
+  log_info "开始配置 API 接口与 KEY（将写入 ~/.codex/config.toml）"
+
+  local default_base="https://api.openai.com/v1"
+  local api_base_url_raw
+  local current_project_mulu
+  api_base_url_raw="$(read_input "请输入 API Base URL（可只填域名/也可填到具体接口）" "${default_base}")"
+  current_project_mulu="$(pwd -P)"
+
+  local api_base_url
+  api_base_url="$(normalize_api_base_url "${api_base_url_raw}")"
+  api_base_url="$(echo -n "${api_base_url}" | sed -e 's/^[[:space:]]\+//' -e 's/[[:space:]]\+$//')"
+
+  if [[ -z "${api_base_url}" ]]; then
+    log_err "API Base URL 解析失败（输入为空或格式不合法）。"
+    return 1
+  fi
+
+  log_info "已规范化 API Base URL => ${api_base_url}"
+
+  local api_key
+  api_key="$(read_input "请输入 API KEY（明文显示）")"
+  api_key="$(echo -n "${api_key}" | tr -d '[:space:]')"
+
+  if [[ -z "${api_key}" ]]; then
+    log_err "API KEY 不能为空。"
+    return 1
+  fi
+
+  cleanup_legacy_env_bashrc_loader
+  save_codex_zuigao_quanxian_peizhi
+  save_codex_provider_peizhi "${api_base_url}" "${api_key}"
+  save_codex_project_trust_peizhi "${current_project_mulu}"
+  save_codex_qiangzhi_profile_bashrc
+
+  log_info "配置完成。请重新打开终端，或执行：source ~/.bashrc"
+  log_info "之后直接运行 codex，即会自动强制走 codexcli_custom，且不再弹审批类 yes/no"
+}
+
+# 中文备注：打印菜单
+show_caidan_xinxi() {
+  echo
+  echo "=============================="
+  echo " codexcli 菜单"
+  echo "=============================="
+  echo "1. 设置 API KEY（强制 codex 走自定义 provider）"
+  echo "2. 清除配置（恢复到可官方登录的初始状态）"
+  echo "0. 退出"
+  echo "=============================="
+}
+
+# 中文备注：循环处理菜单选择
+handle_caidan_xuanze() {
+  local xuanze
+
+  show_caidan_xinxi
+  xuanze="$(read_input "请选择操作" "1")"
+
+  case "${xuanze}" in
+    1)
+      setup_api_key_zidingyi_provider
+      log_info "脚本执行完毕，已退出。"
+      ;;
+    2)
+      clear_codex_zidingyi_peizhi
+      log_info "脚本执行完毕，已退出。"
+      ;;
+    0)
+      log_info "已退出。"
+      ;;
+    *)
+      log_warn "无效选项：${xuanze}"
+      log_info "脚本执行完毕，已退出。"
+      ;;
+  esac
+}
+
+# 中文备注：启动时默认检查/安装，检查完成后进入菜单
 main() {
   check_debian_xitong
   install_apt_yilai
   install_node_lts
   install_codexcli_npm
-  save_codex_zuigao_quanxian_peizhi
-
-  log_info "开始配置 API 接口与 KEY（将写入 ~/.codex/config.toml）"
-
-  # 中文备注：API_BASE_URL 可输入官方或自建代理/网关地址
-  local default_base="https://api.openai.com/v1"
-  local api_base_url_raw
-  api_base_url_raw="$(read_input "请输入 API Base URL（可只填域名/也可填到具体接口）" "${default_base}")"
-
-  local api_base_url
-  api_base_url="$(normalize_api_base_url "${api_base_url_raw}")"
-  # 去首尾空白
-  api_base_url="$(echo -n "${api_base_url}" | sed -e 's/^[[:space:]]\+//' -e 's/[[:space:]]\+$//')"
-
-
-  if [[ -z "${api_base_url}" ]]; then
-    log_err "API Base URL 解析失败（输入为空或格式不合法）。"
-    exit 1
-  fi
-
-  log_info "已规范化 API Base URL => ${api_base_url}"
-
-
-
-  local api_key
-  api_key="$(read_input "请输入 API KEY（明文显示）")"
-  api_key="$(echo -n "${api_key}" | tr -d '[:space:]')"
-  cleanup_legacy_env_bashrc_loader
-  save_codex_provider_peizhi "${api_base_url}" "${api_key}"
-
-  #log_info "完成。新开终端或执行：source ~/.bashrc 以确保环境变量加载。"
-  log_info "如果是首次安装codexcli 指定API是不生效的 需要执行一次codex ,访问失败后后再执行一次脚本即可生效"
-  #log_info "已设置：OPENAI_BASE_URL / OPENAI_API_KEY"
+  handle_caidan_xuanze
 }
 
 main "$@"
