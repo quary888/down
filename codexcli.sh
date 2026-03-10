@@ -640,7 +640,7 @@ handle_caidan_xuanze() {
   case "${xuanze}" in
     1)
       setup_api_key_zidingyi_provider
-      log_info "SSH需重新连接。"
+      log_info "脚本执行完毕，已退出"
       ;;
     2)
       clear_codex_zidingyi_peizhi
