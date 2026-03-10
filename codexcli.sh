@@ -36,6 +36,47 @@ delete_marker_qukuai_wenjian() {
   mv "${tmp_wenjian}" "${file_lujing}"
 }
 
+# 中文备注：按正则删除匹配行，兼容清理没有 marker 的历史残留配置
+delete_regex_hang_wenjian() {
+  local file_lujing="$1"
+  local hang_zhengze="$2"
+
+  if [[ ! -f "${file_lujing}" ]]; then
+    return 0
+  fi
+
+  local tmp_wenjian
+  tmp_wenjian="$(mktemp)"
+
+  awk -v hang_zhengze="${hang_zhengze}" '
+    $0 !~ hang_zhengze { print }
+  ' "${file_lujing}" > "${tmp_wenjian}"
+
+  mv "${tmp_wenjian}" "${file_lujing}"
+}
+
+# 中文备注：按 TOML 表头删除整个区块，直到下一个表头或文件结束
+delete_toml_biao_qukuai_wenjian() {
+  local file_lujing="$1"
+  local biao_tou_zhengze="$2"
+
+  if [[ ! -f "${file_lujing}" ]]; then
+    return 0
+  fi
+
+  local tmp_wenjian
+  tmp_wenjian="$(mktemp)"
+
+  awk -v biao_tou_zhengze="${biao_tou_zhengze}" '
+    BEGIN { skip_zhuangtai = 0 }
+    skip_zhuangtai == 0 && $0 ~ biao_tou_zhengze { skip_zhuangtai = 1; next }
+    skip_zhuangtai == 1 && $0 ~ /^\[/ { skip_zhuangtai = 0 }
+    skip_zhuangtai == 0 { print }
+  ' "${file_lujing}" > "${tmp_wenjian}"
+
+  mv "${tmp_wenjian}" "${file_lujing}"
+}
+
 # 中文备注：若文件只剩空白，则直接删除，恢复更接近初始状态
 cleanup_kong_wenjian() {
   local file_lujing="$1"
@@ -360,6 +401,24 @@ cleanup_legacy_env_bashrc_loader() {
   fi
 }
 
+# 中文备注：兼容清理旧版遗留的 codexcli_custom 根级配置与 TOML 表块
+clear_codexcli_custom_canliu_peizhi() {
+  local cfg_file="$1"
+  local legacy_marker_begin="# >>> codexcli feiguanfang provider begin >>>"
+  local legacy_marker_end="# <<< codexcli feiguanfang provider end <<<"
+
+  if [[ ! -f "${cfg_file}" ]]; then
+    return 0
+  fi
+
+  delete_marker_qukuai_wenjian "${cfg_file}" "${legacy_marker_begin}" "${legacy_marker_end}"
+  delete_regex_hang_wenjian "${cfg_file}" '^[[:space:]]*profile[[:space:]]*=[[:space:]]*"codexcli_custom"[[:space:]]*$'
+  delete_regex_hang_wenjian "${cfg_file}" '^[[:space:]]*model_provider[[:space:]]*=[[:space:]]*"codexcli_custom"[[:space:]]*$'
+  delete_toml_biao_qukuai_wenjian "${cfg_file}" '^[[:space:]]*\[model_providers\.codexcli_custom\][[:space:]]*$'
+  delete_toml_biao_qukuai_wenjian "${cfg_file}" '^[[:space:]]*\[profiles\.codexcli_custom\][[:space:]]*$'
+  cleanup_kong_wenjian "${cfg_file}"
+}
+
 # 中文备注：统一将 provider + token 写入 ~/.codex/config.toml（不再依赖环境变量文件）
 save_codex_provider_peizhi() {
   local api_base_url="$1"
@@ -392,6 +451,7 @@ save_codex_provider_peizhi() {
   # 中文备注：兼容清理旧版 marker，避免历史块残留导致配置混乱
   delete_marker_qukuai_wenjian "${cfg_file}" "${legacy_marker_begin}" "${legacy_marker_end}"
   delete_marker_qukuai_wenjian "${cfg_file}" "${marker_profile_begin}" "${marker_profile_end}"
+  clear_codexcli_custom_canliu_peizhi "${cfg_file}"
 
   tmp_yuanshi_wenjian="$(mktemp)"
   tmp_profile_wenjian="$(mktemp)"
@@ -488,6 +548,8 @@ clear_codex_zidingyi_peizhi() {
   local marker_quanxian_end="# <<< codexcli max permissions end <<<"
   local marker_provider_begin="# >>> codexcli provider begin >>>"
   local marker_provider_end="# <<< codexcli provider end <<<"
+  local legacy_marker_begin="# >>> codexcli feiguanfang provider begin >>>"
+  local legacy_marker_end="# <<< codexcli feiguanfang provider end <<<"
   local marker_profile_begin="# >>> codexcli moren profile begin >>>"
   local marker_profile_end="# <<< codexcli moren profile end <<<"
   local marker_trust_begin="# >>> codexcli trusted project begin >>>"
@@ -498,8 +560,10 @@ clear_codex_zidingyi_peizhi() {
 
   delete_marker_qukuai_wenjian "${cfg_file}" "${marker_quanxian_begin}" "${marker_quanxian_end}"
   delete_marker_qukuai_wenjian "${cfg_file}" "${marker_provider_begin}" "${marker_provider_end}"
+  delete_marker_qukuai_wenjian "${cfg_file}" "${legacy_marker_begin}" "${legacy_marker_end}"
   delete_marker_qukuai_wenjian "${cfg_file}" "${marker_profile_begin}" "${marker_profile_end}"
   delete_marker_qukuai_wenjian "${cfg_file}" "${marker_trust_begin}" "${marker_trust_end}"
+  clear_codexcli_custom_canliu_peizhi "${cfg_file}"
   cleanup_kong_wenjian "${cfg_file}"
 
   delete_marker_qukuai_wenjian "${HOME}/.bashrc" "${marker_wrapper_begin}" "${marker_wrapper_end}"
@@ -576,7 +640,7 @@ handle_caidan_xuanze() {
   case "${xuanze}" in
     1)
       setup_api_key_zidingyi_provider
-      log_info "脚本执行完毕，已退出。"
+      log_info "SSH需重新连接。"
       ;;
     2)
       clear_codex_zidingyi_peizhi
