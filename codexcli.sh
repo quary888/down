@@ -101,6 +101,27 @@ escape_toml_jiben_zifuchuan() {
   echo "${escaped_neirong}"
 }
 
+# 中文备注：转义正则特殊字符，便于按精确 TOML 表头清理历史残留
+escape_regex_jiben_zifuchuan() {
+  local raw_neirong="$1"
+
+  echo "${raw_neirong}" | sed -e 's/[][(){}.^$*+?|\\-]/\\&/g'
+}
+
+# 中文备注：将项目目录规范为 Codex 使用的目录 key 形式，统一补齐末尾 /
+normalize_codex_project_mulu() {
+  local raw_project_mulu="$1"
+  local normalized_project_mulu
+
+  normalized_project_mulu="$(echo -n "${raw_project_mulu}" | sed -e 's#/*$##')"
+  if [[ -z "${normalized_project_mulu}" ]]; then
+    echo "/"
+    return 0
+  fi
+
+  echo "${normalized_project_mulu}/"
+}
+
 # 中文备注：检查是否为 Debian/Ubuntu 体系（此脚本按 Debian 写）
 check_debian_xitong() {
   if [[ ! -r /etc/os-release ]]; then
@@ -422,6 +443,7 @@ save_codex_zuigao_quanxian_peizhi() {
   cat > "${tmp_xin_wenjian}" <<EOF
 ${marker_begin}
 approval_policy = "never"
+sandbox_mode = "danger-full-access"
 sandbox_permissions = [
   "disk-full-access"
 ]
@@ -540,6 +562,35 @@ EOF
   log_info "已写入根级默认 profile=codexcli_custom"
 }
 
+# 中文备注：清理项目 trust 历史残留，兼容无 / 与带 / 两种目录 key
+clear_codex_project_trust_canliu_peizhi() {
+  local cfg_file="$1"
+  local project_mulu="$2"
+  local normalized_project_mulu
+  local legacy_project_mulu
+  local normalized_toml_project_mulu
+  local legacy_toml_project_mulu
+  local normalized_regex_project_mulu
+  local legacy_regex_project_mulu
+
+  if [[ ! -f "${cfg_file}" ]]; then
+    return 0
+  fi
+
+  normalized_project_mulu="$(normalize_codex_project_mulu "${project_mulu}")"
+  legacy_project_mulu="${normalized_project_mulu%/}"
+
+  normalized_toml_project_mulu="$(escape_toml_jiben_zifuchuan "${normalized_project_mulu}")"
+  normalized_regex_project_mulu="$(escape_regex_jiben_zifuchuan "${normalized_toml_project_mulu}")"
+  delete_toml_biao_qukuai_wenjian "${cfg_file}" "^[[:space:]]*\\[projects\\.\"${normalized_regex_project_mulu}\"\\][[:space:]]*$"
+
+  if [[ -n "${legacy_project_mulu}" ]]; then
+    legacy_toml_project_mulu="$(escape_toml_jiben_zifuchuan "${legacy_project_mulu}")"
+    legacy_regex_project_mulu="$(escape_regex_jiben_zifuchuan "${legacy_toml_project_mulu}")"
+    delete_toml_biao_qukuai_wenjian "${cfg_file}" "^[[:space:]]*\\[projects\\.\"${legacy_regex_project_mulu}\"\\][[:space:]]*$"
+  fi
+}
+
 # 中文备注：写入项目 trust 配置，避免目录信任确认提示
 save_codex_project_trust_peizhi() {
   local project_mulu="$1"
@@ -547,6 +598,7 @@ save_codex_project_trust_peizhi() {
   local cfg_file="${cfg_dir}/config.toml"
   local marker_begin="# >>> codexcli trusted project begin >>>"
   local marker_end="# <<< codexcli trusted project end <<<"
+  local normalized_project_mulu
   local escaped_project_mulu
 
   mkdir -p "${cfg_dir}"
@@ -555,8 +607,10 @@ save_codex_project_trust_peizhi() {
     touch "${cfg_file}"
   fi
 
-  escaped_project_mulu="$(escape_toml_jiben_zifuchuan "${project_mulu}")"
+  normalized_project_mulu="$(normalize_codex_project_mulu "${project_mulu}")"
+  escaped_project_mulu="$(escape_toml_jiben_zifuchuan "${normalized_project_mulu}")"
   delete_marker_qukuai_wenjian "${cfg_file}" "${marker_begin}" "${marker_end}"
+  clear_codex_project_trust_canliu_peizhi "${cfg_file}" "${project_mulu}"
 
   cat >> "${cfg_file}" <<EOF
 
@@ -567,7 +621,7 @@ ${marker_end}
 EOF
 
   chmod 600 "${cfg_file}"
-  log_info "已将项目目录标记为 trusted：${project_mulu}"
+  log_info "已将项目目录标记为 trusted：${normalized_project_mulu}"
 }
 
 # 中文备注：清理旧版 codex shell 包装与本地包装脚本残留，避免继续影响启动
