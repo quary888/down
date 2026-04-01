@@ -1,7 +1,4 @@
 127.0.0.1&888&admin&123456
-copilot.microsoft.com
+api.openai.com
 chatgpt.com
-www.google.com
-gemini.google.com
-one.google.com
-x.ai
+api.chatgpt.com
