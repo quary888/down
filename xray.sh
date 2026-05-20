@@ -27,7 +27,7 @@ echo
 
 
 # ========= 安装依赖 =========
-DEPENDENCIES=(curl wget unzip nc awk sed grep ss jq xxd)
+DEPENDENCIES=(curl unzip nc awk sed grep ss jq xxd)
 install_pkg() {
     cmd="$1"
     yellow "检测到缺少命令: $cmd，尝试安装..."
@@ -113,7 +113,7 @@ if $re_download; then
 
     tmpzip="/tmp/xray_$(date +%s).zip"
     yellow "下载中..."
-    wget -O "$tmpzip" "$asset_url"
+    curl -fL "$asset_url" -o "$tmpzip"
     green "下载完成: $tmpzip"
 
     yellow "解压..."
@@ -221,7 +221,7 @@ EOF
     # 从远端脚本抓取“本机/入口”IP（第2列），并去重保留顺序
     # 注: get_ssh_ip.sh 输出格式应为：PID local_ip remote_ip
     # 我们取第2列 (local_ip)
-    mapfile -t ssh_ips_raw < <(bash <(wget -qO- -o- https://raw.githubusercontent.com/quary888/down/main/get_ssh_ip.sh) 2>/dev/null | awk '{print $2}')
+    mapfile -t ssh_ips_raw < <(bash <(curl -fsSL https://raw.githubusercontent.com/quary888/down/main/get_ssh_ip.sh) 2>/dev/null | awk '{print $2}')
     # 规范化 ssh_ips（为 IPv6 加方括号）
     ssh_ips=()
     for s in "${ssh_ips_raw[@]}"; do
