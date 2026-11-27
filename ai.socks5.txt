@@ -1,4 +1,0 @@
-127.0.0.1&888&admin&123456
-api.openai.com
-chatgpt.com
-api.chatgpt.com
